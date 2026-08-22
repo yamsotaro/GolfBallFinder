@@ -15,7 +15,8 @@ Then push the repository to GitHub and use the included Codemagic workflows. `io
 unit tests and an unsigned Xcode compile. `ios-model-compile-check` additionally downloads the SHA256-pinned seed,
 exports `GolfBall.mlpackage`, runs tests/build, and fails unless `GolfBall.mlmodelc` is present in the Simulator app.
 It also inspects the generated `project.pbxproj` to require the model in the application target's Sources phase and
-requires a `coremlcompiler`/Core ML compilation operation in a clean Xcode build log before checking the bundle.
+requires `ModelManifest.json` in the application target's Resources phase, then requires a `coremlcompiler`/Core ML
+compilation operation in a clean Xcode build log before checking both resources in the bundle.
 The lightweight model-free workflow uses `project.compile-check.yml`; the full `project.yml` deliberately requires
 the exported model and manifest. Neither workflow needs Apple signing. `ios-testflight` repeats the model/export/test
 path, assigns a unique build number, signs the IPA, and uploads it to App Store Connect. Full setup:
@@ -108,7 +109,9 @@ open GolfBallFinder.xcodeproj
 ```
 
 The Core ML export also writes `GolfBallFinder/Resources/ModelManifest.json` with the source checkpoint hash,
-tool versions, input size, and precision. Keep it with field results so model comparisons remain reproducible.
+tool versions, input size, and precision. The app reads its checkpoint SHA256 into each field-diagnostics record, so
+the model workflow treats the manifest as a required top-level bundle resource. Keep it with field results so model
+comparisons remain reproducible.
 
 ## Train the actual model
 

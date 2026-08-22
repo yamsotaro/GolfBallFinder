@@ -101,11 +101,13 @@ workflows:
           from scripts.fetch_seed_model import EXPECTED_SHA256
           package = Path("GolfBallFinder/Resources/GolfBall.mlpackage")
           manifest_path = Path("GolfBallFinder/Resources/ModelManifest.json")
+          assert manifest_path.is_file(), f"Generated model manifest is missing: {manifest_path}"
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
           assert package.is_dir(), package
           assert (package / "Manifest.json").is_file(), "Core ML package Manifest.json is missing"
           assert manifest["checkpoint_sha256"] == EXPECTED_SHA256, manifest
           assert manifest["model_resource"] == "GolfBall.mlpackage", manifest
+          print(f"Verified generated manifest: {manifest_path.resolve()}")
           print(json.dumps(manifest, indent=2))
           '
 
@@ -115,12 +117,14 @@ workflows:
           xcodegen generate
           PBXPROJ="GolfBallFinder.xcodeproj/project.pbxproj"
           test -f "$PBXPROJ" || { echo "Generated project.pbxproj is missing"; exit 3; }
-          echo "GolfBall.mlpackage PBXFileReference and build-phase diagnostics:"
-          grep -n "GolfBall.mlpackage" "$PBXPROJ" || true
+          echo "PBXFileReference/PBXBuildFile/PBXSourcesBuildPhase/PBXResourcesBuildPhase diagnostics:"
+          grep -nE "GolfBall.mlpackage|ModelManifest.json|PrivacyInfo.xcprivacy" "$PBXPROJ" || true
           python3 scripts/validate_xcode_model_registration.py \
             --pbxproj "$PBXPROJ" \
             --target GolfBallFinder \
             --model GolfBall.mlpackage \
+            --resource ModelManifest.json \
+            --resource PrivacyInfo.xcprivacy \
             --runtime-config GolfBallFinder/AppConfig.swift
           xcodebuild -resolvePackageDependencies \
             -project GolfBallFinder.xcodeproj \
@@ -173,6 +177,8 @@ workflows:
           find "$APP_PATH" -type d -name '*.mlmodelc' -print
           MODEL_PATH="$(find "$APP_PATH" -type d -name GolfBall.mlmodelc -print -quit)"
           test -n "$MODEL_PATH" || { echo "Compiled GolfBall.mlmodelc is missing from app bundle"; exit 5; }
+          echo "All JSON files in app bundle:"
+          find "$APP_PATH" -type f -name '*.json' -print
           test -f "$APP_PATH/ModelManifest.json" || { echo "ModelManifest.json is missing from app bundle"; exit 6; }
           echo "Verified bundled model: $MODEL_PATH"
 
@@ -254,6 +260,8 @@ workflows:
             --pbxproj GolfBallFinder.xcodeproj/project.pbxproj \
             --target GolfBallFinder \
             --model GolfBall.mlpackage \
+            --resource ModelManifest.json \
+            --resource PrivacyInfo.xcprivacy \
             --runtime-config GolfBallFinder/AppConfig.swift
 
       - name: Resolve Swift packages

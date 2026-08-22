@@ -122,12 +122,22 @@ class RepositoryConfigurationTests(unittest.TestCase):
             target["sources"],
         )
         self.assertNotIn(
-            {"path": "GolfBallFinder/Resources"},
-            target["resources"],
+            "resources",
+            target,
         )
         self.assertIn(
-            {"path": "GolfBallFinder/Resources/ModelManifest.json"},
-            target["resources"],
+            {
+                "path": "GolfBallFinder/Resources/ModelManifest.json",
+                "buildPhase": "resources",
+            },
+            target["sources"],
+        )
+        self.assertIn(
+            {
+                "path": "GolfBallFinder/PrivacyInfo.xcprivacy",
+                "buildPhase": "resources",
+            },
+            target["sources"],
         )
 
         compile_overlay = yaml.safe_load(
@@ -138,9 +148,16 @@ class RepositoryConfigurationTests(unittest.TestCase):
             "GolfBallFinder/Resources/GolfBall.mlpackage",
             [entry["path"] for entry in compile_target["sources:REPLACE"]],
         )
-        self.assertEqual(
-            compile_target["resources:REPLACE"],
-            [{"path": "GolfBallFinder/PrivacyInfo.xcprivacy"}],
+        self.assertNotIn(
+            "GolfBallFinder/Resources/ModelManifest.json",
+            [entry["path"] for entry in compile_target["sources:REPLACE"]],
+        )
+        self.assertIn(
+            {
+                "path": "GolfBallFinder/PrivacyInfo.xcprivacy",
+                "buildPhase": "resources",
+            },
+            compile_target["sources:REPLACE"],
         )
 
         codemagic = yaml.safe_load(
@@ -164,8 +181,12 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertIn("CODE_SIGNING_ALLOWED=NO", scripts)
         self.assertIn("validate_xcode_model_registration.py", scripts)
         self.assertIn("PBXFileReference", scripts)
+        self.assertIn("--resource ModelManifest.json", scripts)
+        self.assertIn("--resource PrivacyInfo.xcprivacy", scripts)
+        self.assertIn("manifest_path.is_file()", scripts)
         self.assertIn("coremlcompiler", scripts)
         self.assertIn("-name '*.mlmodelc'", scripts)
+        self.assertIn("-name '*.json'", scripts)
         self.assertIn("build/model-test-derived", scripts)
         self.assertIn("build/model-compile-derived", scripts)
 
@@ -199,10 +220,13 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertEqual(manifest["NSPrivacyCollectedDataTypes"], [])
         self.assertEqual(manifest["NSPrivacyTrackingDomains"], [])
         self.assertIn(
-            {"path": "GolfBallFinder/PrivacyInfo.xcprivacy"},
+            {
+                "path": "GolfBallFinder/PrivacyInfo.xcprivacy",
+                "buildPhase": "resources",
+            },
             yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))["targets"][
                 "GolfBallFinder"
-            ]["resources"],
+            ]["sources"],
         )
 
     def test_field_diagnostics_are_local_and_files_recoverable(self) -> None:
@@ -228,6 +252,11 @@ class RepositoryConfigurationTests(unittest.TestCase):
             "missed_golf_ball",
         ):
             self.assertIn(field, source)
+        self.assertIn(
+            'Bundle.main.url(forResource: "ModelManifest", withExtension: "json")',
+            source,
+        )
+        self.assertIn("modelCheckpointSHA256", source)
 
     def test_inference_path_discards_late_frames_and_has_thermal_policy(self) -> None:
         camera = (ROOT / "GolfBallFinder" / "Camera" / "CameraController.swift").read_text(
@@ -245,9 +274,11 @@ class RepositoryConfigurationTests(unittest.TestCase):
 PBXPROJ_WITH_COMPILED_MODEL_SOURCE = """\
 /* Begin PBXBuildFile section */
   BUILD1 /* GolfBall.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = FILE1 /* GolfBall.mlpackage */; };
+  MANIFESTBUILD /* ModelManifest.json in Resources */ = {isa = PBXBuildFile; fileRef = MANIFESTFILE /* ModelManifest.json */; };
 /* End PBXBuildFile section */
 /* Begin PBXFileReference section */
   FILE1 /* GolfBall.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = GolfBall.mlpackage; sourceTree = \"<group>\"; };
+  MANIFESTFILE /* ModelManifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = ModelManifest.json; sourceTree = \"<group>\"; };
 /* End PBXFileReference section */
 /* Begin PBXNativeTarget section */
   TARGET1 /* GolfBallFinder */ = {
@@ -263,6 +294,7 @@ PBXPROJ_WITH_COMPILED_MODEL_SOURCE = """\
   RESOURCES1 /* Resources */ = {
     isa = PBXResourcesBuildPhase;
     files = (
+      MANIFESTBUILD /* ModelManifest.json in Resources */,
     );
   };
 /* End PBXResourcesBuildPhase section */
@@ -288,19 +320,25 @@ class XcodeModelRegistrationValidatorTests(unittest.TestCase):
                 "GolfBallFinder",
                 "GolfBall.mlpackage",
                 ROOT / "GolfBallFinder" / "AppConfig.swift",
+                ("ModelManifest.json",),
             )
 
         self.assertEqual(result["sources_phase_id"], "SOURCES1")
         self.assertEqual(result["runtime_model_name"], "GolfBall")
         self.assertEqual(result["compiled_bundle_name"], "GolfBall.mlmodelc")
+        self.assertEqual(
+            result["resource_ModelManifest.json_resources_phase_id"],
+            "RESOURCES1",
+        )
 
     def test_rejects_model_in_copy_resources_phase(self) -> None:
         broken = PBXPROJ_WITH_COMPILED_MODEL_SOURCE.replace(
             "      BUILD1 /* GolfBall.mlpackage in Sources */,\n",
             "",
         ).replace(
-            "    files = (\n    );\n  };\n/* End PBXResourcesBuildPhase section */",
-            "    files = (\n      BUILD1 /* GolfBall.mlpackage in Resources */,\n    );\n  };\n/* End PBXResourcesBuildPhase section */",
+            "      MANIFESTBUILD /* ModelManifest.json in Resources */,\n",
+            "      MANIFESTBUILD /* ModelManifest.json in Resources */,\n"
+            "      BUILD1 /* GolfBall.mlpackage in Resources */,\n",
         )
         with tempfile.TemporaryDirectory() as directory:
             pbxproj = Path(directory) / "project.pbxproj"
@@ -314,6 +352,26 @@ class XcodeModelRegistrationValidatorTests(unittest.TestCase):
                     "GolfBallFinder",
                     "GolfBall.mlpackage",
                     ROOT / "GolfBallFinder" / "AppConfig.swift",
+                )
+
+    def test_rejects_manifest_missing_from_resources_phase(self) -> None:
+        broken = PBXPROJ_WITH_COMPILED_MODEL_SOURCE.replace(
+            "      MANIFESTBUILD /* ModelManifest.json in Resources */,\n",
+            "",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            pbxproj = Path(directory) / "project.pbxproj"
+            pbxproj.write_text(broken, encoding="utf-8")
+
+            with self.assertRaises(
+                validate_xcode_model_registration.ModelRegistrationError
+            ):
+                validate_xcode_model_registration.validate_registration(
+                    pbxproj,
+                    "GolfBallFinder",
+                    "GolfBall.mlpackage",
+                    ROOT / "GolfBallFinder" / "AppConfig.swift",
+                    ("ModelManifest.json",),
                 )
 
 

@@ -28,9 +28,10 @@ targets:
       # source and adds it to PBXSourcesBuildPhase, which produces .mlmodelc.
       - path: GolfBallFinder/Resources/GolfBall.mlpackage
         buildPhase: sources
-    resources:
       - path: GolfBallFinder/Resources/ModelManifest.json
+        buildPhase: resources
       - path: GolfBallFinder/PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - package: UltralyticsYOLO
         product: UltralyticsYOLO

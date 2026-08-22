@@ -8,8 +8,9 @@ Do not put any credential, certificate, provisioning profile, `.p8` file, or sec
 Before configuring signing, push the intended commit and run Codemagic `ios-model-compile-check`. Keep its generated
 `ModelManifest.json` and verify the workflow reaches the explicit `GolfBall.mlmodelc` bundle check. This workflow
 does not require Apple Developer approval or signing. Confirm the log first reports a valid `PBXFileReference` and
-application-target Sources phase, then shows a `coremlcompiler`/Core ML compilation operation and the complete
-`*.mlmodelc` listing.
+application-target Sources phase for the model and Resources phase for `ModelManifest.json`, then shows a
+`coremlcompiler`/Core ML compilation operation, the complete `*.mlmodelc` listing, the bundled JSON listing, and
+successful checks for both `GolfBall.mlmodelc` and top-level `ModelManifest.json`.
 
 ## 2. Apple Developer and App Store Connect
 

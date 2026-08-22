@@ -79,15 +79,18 @@ Developer approval is pending; it isolates model/export/resource errors from lat
 The model must be declared as an individual target `source` in `project.yml`. XcodeGen 2.38.0 or newer recognizes
 `.mlpackage` as a source type; the spec explicitly sets `buildPhase: sources` so it is placed in the application
 target's `PBXSourcesBuildPhase`, allowing Xcode's standard Core ML build pipeline to produce `.mlmodelc`. Declaring
-the whole `Resources` directory under the target's
-`resources` list instead puts the package in Copy Bundle Resources and bypasses model compilation. The workflow
-therefore validates the generated `PBXFileReference` and Sources phase, uses separate DerivedData for XCTest and the
-final clean build, requires a Core ML compiler operation in the final build log, and lists every generated
-`*.mlmodelc` directory before checking specifically for `GolfBall.mlmodelc` in the app.
+files under a target-level `resources` key is not part of XcodeGen's target schema and does not register them. Bundle
+resources must also be target `sources` entries, with `buildPhase: resources`. The workflow therefore validates the
+generated model `PBXFileReference`/`PBXBuildFile`/Sources phase and the manifest/privacy
+`PBXFileReference`/`PBXBuildFile`/Resources phase, uses separate DerivedData for XCTest and the final clean build,
+requires a Core ML compiler operation in the final build log, and lists every generated `*.mlmodelc` directory and
+every bundled JSON file before checking `GolfBall.mlmodelc` and top-level `ModelManifest.json` in the app.
 
 `project.yml` deliberately requires both the exported model and `ModelManifest.json`. The model-free
 `ios-compile-check` generates from `project.compile-check.yml`, an overlay that removes those two generated inputs
 while retaining the application sources and privacy manifest. Do not use that overlay for model or TestFlight builds.
+The manifest is not needed to execute Core ML inference, but Field Diagnostics loads it from the bundle root and
+adds `checkpoint_sha256` to records. It is therefore required for traceable field evidence and model comparisons.
 
 After Apple Developer approval and private integration setup, run `ios-testflight`.
 

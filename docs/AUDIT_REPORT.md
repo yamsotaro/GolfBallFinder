@@ -35,7 +35,7 @@ branch protection, and the ability to start a connected Codemagic build could no
 | Low | TestFlight export-compliance prompts were not explicitly described by the app plist. | Declared `ITSAppUsesNonExemptEncryption: false`; the app contains no non-exempt encryption feature. |
 | Low | The app's no-upload/no-tracking behavior was specified only in prose. | Added an app privacy manifest declaring no tracking, collected-data types, tracking domains, or required-reason API categories. |
 | High | The unsigned cloud gate did not exercise seed fetch, Core ML export, or verify the compiled model resource. | Added `ios-model-compile-check`, including pinned SHA verification, export, XCTest/build, and `.mlmodelc`/manifest bundle assertions. |
-| High | The generated `.mlpackage` was included through the whole `Resources` directory, forcing it into Copy Bundle Resources; Xcode built successfully without invoking the Core ML compiler or producing `GolfBall.mlmodelc`. | Registered `GolfBall.mlpackage` individually under target sources, required XcodeGen 2.38.0+, and added generated-project, Core ML build-log, full `.mlmodelc` enumeration, runtime-name, and app-bundle validation. |
+| High | A target-level `resources` key unsupported by XcodeGen left the generated model and ordinary bundle resources unregistered. Xcode could still compile the Swift target without producing a bundled model or manifest. | Registered `GolfBall.mlpackage` individually as `sources`, registered the diagnostics manifest/privacy manifest individually with `buildPhase: resources`, required XcodeGen 2.38.0+, and added generated-project phase validation plus build-product enumeration. |
 | High | No field diagnostics or recoverable failure evidence existed. | Added bounded JSONL metrics, scene timing, local-only latest-frame evidence, and separate Field Diagnostics UI for verified finds, false positives, and misses. |
 | High | Camera lifecycle and thermal load were incomplete. | Added interruption/runtime/background/foreground observers, permission recovery, portrait rotation, latest-frame-only admission/drop counters, and 20/15/8/4 FPS thermal policy. |
 | High | Training split and comparison rules were prose-only. | Added manifest-driven preparation, dataset/label/leakage/duplicate/Hard Negative validation, provenance hashes, and field-KPI model comparison. |
@@ -46,7 +46,7 @@ Passed on Windows after the changes:
 
 - `scripts/bootstrap_windows.ps1`: virtual environment, pinned dependency install, seed download, SHA256 verification,
   and Python tests;
-- Python `unittest`: 28/28 passing, including session split/Hard Negative validation, field-log KPI summary,
+- Python `unittest`: 29/29 passing, including session split/Hard Negative validation, field-log KPI summary,
   comparable model ranking, XcodeGen model-source configuration, and generated-pbxproj phase validation;
 - Python `compileall` plus `--help` smoke checks for all CLIs;
 - PowerShell parser for `bootstrap_windows.ps1` and Bash syntax check for `bootstrap_mac.sh`;
@@ -63,10 +63,12 @@ The tree-sitter result is syntax-only. It does not claim Swift type-checking, iO
 
 ## Remaining gates and risks
 
-1. **Cloud Apple-toolchain gate:** the owner reports the prior `ios-compile-check`, XcodeGen, package resolution,
-   Simulator XCTest and build succeeded. Re-run it for the current diagnostics/camera revision.
-2. **Core ML export gate:** run unsigned `ios-model-compile-check`. Conversion and Core ML package compilation
-   cannot be claimed until that workflow completes.
+1. **Cloud Apple-toolchain gate:** the owner reports `ios-compile-check`, XcodeGen, package resolution, Simulator
+   XCTest/build, and the `ios-model-compile-check` Core ML export/compilation all succeeded. Re-run
+   `ios-model-compile-check` for the manifest Resources-phase correction; its previous run stopped only at the
+   missing manifest bundle assertion.
+2. **Core ML resource gate:** the reported run proves `GolfBall.mlmodelc` compilation and bundling. The corrected
+   workflow must still prove `ModelManifest.json` is copied to the app bundle.
 3. **Signing/App Store Connect:** supply the private Codemagic integration and `BUNDLE_ID` externally. No key,
    certificate, provisioning profile, team ID, or `.p8` belongs in Git.
 4. **Physical iPhone gate:** camera permission, preview orientation/aspect fill, overlay alignment, 1x/2x behavior,

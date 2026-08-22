@@ -12,5 +12,5 @@ targets:
           - Resources
           - Info.plist
           - PrivacyInfo.xcprivacy
-    resources:REPLACE:
       - path: GolfBallFinder/PrivacyInfo.xcprivacy
+        buildPhase: resources

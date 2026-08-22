@@ -8,6 +8,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 
 class ModelRegistrationError(ValueError):
@@ -94,6 +95,7 @@ def validate_registration(
     target_name: str,
     model_filename: str,
     runtime_config_path: Path,
+    resource_filenames: Sequence[str] = (),
 ) -> dict[str, str]:
     text = pbxproj_path.read_text(encoding="utf-8")
 
@@ -198,7 +200,7 @@ def validate_registration(
         r"\b(?:lastKnownFileType|explicitFileType)\s*=\s*([^;]+);",
         file_reference.body,
     )
-    return {
+    result = {
         "target_id": target.identifier,
         "file_reference_id": file_reference.identifier,
         "file_type": file_type_match.group(1) if file_type_match else "extension-inferred",
@@ -208,12 +210,84 @@ def validate_registration(
         "compiled_bundle_name": f"{compiled_name}.mlmodelc",
     }
 
+    target_resource_phases = [
+        resource_phases[identifier]
+        for identifier in target_phase_ids
+        if identifier in resource_phases
+    ]
+    for resource_filename in resource_filenames:
+        references = [
+            item
+            for item in _objects(text, "PBXFileReference")
+            if item.comment == resource_filename
+            or _setting_matches(item.body, "path", resource_filename)
+        ]
+        if len(references) != 1:
+            raise ModelRegistrationError(
+                f"Expected one PBXFileReference for {resource_filename}, found "
+                f"{len(references)}"
+            )
+        reference = references[0]
+        resource_build_files = [
+            item
+            for item in _objects(text, "PBXBuildFile")
+            if re.search(
+                rf"\bfileRef\s*=\s*{re.escape(reference.identifier)}\b",
+                item.body,
+            )
+        ]
+        if not resource_build_files:
+            raise ModelRegistrationError(
+                f"{resource_filename} has a PBXFileReference but no PBXBuildFile"
+            )
+        resource_build_ids = {item.identifier for item in resource_build_files}
+        matching_resource_phase = next(
+            (
+                phase
+                for phase in target_resource_phases
+                if any(
+                    re.search(rf"\b{re.escape(build_id)}\b", phase.body)
+                    for build_id in resource_build_ids
+                )
+            ),
+            None,
+        )
+        if matching_resource_phase is None:
+            raise ModelRegistrationError(
+                f"{resource_filename} is not in target "
+                f"{target_name}'s PBXResourcesBuildPhase"
+            )
+        if any(
+            any(
+                re.search(rf"\b{re.escape(build_id)}\b", phase.body)
+                for build_id in resource_build_ids
+            )
+            for phase in target_source_phases
+        ):
+            raise ModelRegistrationError(
+                f"{resource_filename} is incorrectly registered in target "
+                f"{target_name}'s PBXSourcesBuildPhase"
+            )
+
+        prefix = f"resource_{resource_filename}"
+        result[f"{prefix}_file_reference_id"] = reference.identifier
+        result[f"{prefix}_build_file_ids"] = ",".join(sorted(resource_build_ids))
+        result[f"{prefix}_resources_phase_id"] = matching_resource_phase.identifier
+
+    return result
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pbxproj", type=Path, required=True)
     parser.add_argument("--target", default="GolfBallFinder")
     parser.add_argument("--model", default="GolfBall.mlpackage")
+    parser.add_argument(
+        "--resource",
+        action="append",
+        default=[],
+        help="Bundle resource filename that must be in the target Resources phase; repeatable.",
+    )
     parser.add_argument(
         "--runtime-config",
         type=Path,
@@ -230,6 +304,7 @@ def main() -> None:
             args.target,
             args.model,
             args.runtime_config,
+            tuple(args.resource),
         )
     except (OSError, ModelRegistrationError) as error:
         print(f"Core ML project registration validation failed: {error}", file=sys.stderr)
