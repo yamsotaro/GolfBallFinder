@@ -14,7 +14,7 @@ workflows:
       - name: Generate Xcode project
         script: |
           set -euo pipefail
-          xcodegen generate
+          xcodegen generate --spec project.compile-check.yml
       - name: Resolve Swift packages
         script: |
           set -euo pipefail
@@ -67,6 +67,7 @@ workflows:
           xcodebuild -version
           brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
           brew list python@3.11 >/dev/null 2>&1 || brew install python@3.11
+          xcodegen --version
 
       - name: Fetch SHA256-pinned seed checkpoint
         script: |
@@ -108,10 +109,19 @@ workflows:
           print(json.dumps(manifest, indent=2))
           '
 
-      - name: Generate project and resolve Swift packages
+      - name: Generate project, verify model registration, and resolve packages
         script: |
           set -euo pipefail
           xcodegen generate
+          PBXPROJ="GolfBallFinder.xcodeproj/project.pbxproj"
+          test -f "$PBXPROJ" || { echo "Generated project.pbxproj is missing"; exit 3; }
+          echo "GolfBall.mlpackage PBXFileReference and build-phase diagnostics:"
+          grep -n "GolfBall.mlpackage" "$PBXPROJ" || true
+          python3 scripts/validate_xcode_model_registration.py \
+            --pbxproj "$PBXPROJ" \
+            --target GolfBallFinder \
+            --model GolfBall.mlpackage \
+            --runtime-config GolfBallFinder/AppConfig.swift
           xcodebuild -resolvePackageDependencies \
             -project GolfBallFinder.xcodeproj \
             -scheme GolfBallFinder
@@ -132,13 +142,15 @@ workflows:
             -project GolfBallFinder.xcodeproj \
             -scheme GolfBallFinder \
             -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
-            -derivedDataPath build/model-compile-derived \
+            -derivedDataPath build/model-test-derived \
             CODE_SIGNING_ALLOWED=NO
 
       - name: Build and verify compiled Core ML bundle resource
         script: |
           set -euo pipefail
-          xcodebuild build \
+          mkdir -p build/logs
+          BUILD_LOG="build/logs/model-xcodebuild.log"
+          xcodebuild clean build \
             -project GolfBallFinder.xcodeproj \
             -scheme GolfBallFinder \
             -sdk iphonesimulator \
@@ -147,9 +159,18 @@ workflows:
             -derivedDataPath build/model-compile-derived \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO 2>&1 | tee "$BUILD_LOG"
+          echo "Core ML compiler operations in the clean build log:"
+          if ! grep -nE "coremlcompiler|/coremlc|CoreMLModelCompile|CompileMLModel|CoreMLModelCodegen" "$BUILD_LOG"; then
+            echo "No Core ML model compilation operation was found in the Xcode build log"
+            exit 7
+          fi
+          echo "All compiled Core ML model directories in build products:"
+          find build/model-compile-derived/Build/Products -type d -name '*.mlmodelc' -print
           APP_PATH="$(find build/model-compile-derived/Build/Products -type d -name GolfBallFinder.app -print -quit)"
           test -n "$APP_PATH" || { echo "Built simulator app was not found"; exit 4; }
+          echo "All compiled Core ML model directories in app bundle:"
+          find "$APP_PATH" -type d -name '*.mlmodelc' -print
           MODEL_PATH="$(find "$APP_PATH" -type d -name GolfBall.mlmodelc -print -quit)"
           test -n "$MODEL_PATH" || { echo "Compiled GolfBall.mlmodelc is missing from app bundle"; exit 5; }
           test -f "$APP_PATH/ModelManifest.json" || { echo "ModelManifest.json is missing from app bundle"; exit 6; }
@@ -157,6 +178,8 @@ workflows:
 
     artifacts:
       - build/model-compile-derived/Build/Products/Debug-iphonesimulator/GolfBallFinder.app
+      - build/logs/model-xcodebuild.log
+      - GolfBallFinder.xcodeproj/project.pbxproj
       - GolfBallFinder/Resources/ModelManifest.json
       - /tmp/xcodebuild_logs/*.log
 
@@ -192,6 +215,7 @@ workflows:
           xcodebuild -version
           brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
           brew list python@3.11 >/dev/null 2>&1 || brew install python@3.11
+          xcodegen --version
 
       - name: Configure bundle identifier
         script: |
@@ -226,6 +250,11 @@ workflows:
         script: |
           set -euo pipefail
           xcodegen generate
+          python3 scripts/validate_xcode_model_registration.py \
+            --pbxproj GolfBallFinder.xcodeproj/project.pbxproj \
+            --target GolfBallFinder \
+            --model GolfBall.mlpackage \
+            --runtime-config GolfBallFinder/AppConfig.swift
 
       - name: Resolve Swift packages
         script: |

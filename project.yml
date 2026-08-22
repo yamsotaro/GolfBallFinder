@@ -1,5 +1,8 @@
 name: GolfBallFinder
 options:
+  # XcodeGen 2.38.0 made .mlpackage a source type so Xcode invokes the
+  # Core ML compiler instead of copying the package as an ordinary resource.
+  minimumXcodeGenVersion: 2.38.0
   bundleIdPrefix: dev.local
   deploymentTarget:
     iOS: "17.0"
@@ -21,8 +24,12 @@ targets:
           - Resources
           - Info.plist
           - PrivacyInfo.xcprivacy
+      # Keep this in Sources. XcodeGen recognizes .mlpackage as a Core ML
+      # source and adds it to PBXSourcesBuildPhase, which produces .mlmodelc.
+      - path: GolfBallFinder/Resources/GolfBall.mlpackage
+        buildPhase: sources
     resources:
-      - path: GolfBallFinder/Resources
+      - path: GolfBallFinder/Resources/ModelManifest.json
       - path: GolfBallFinder/PrivacyInfo.xcprivacy
     dependencies:
       - package: UltralyticsYOLO

@@ -35,6 +35,7 @@ branch protection, and the ability to start a connected Codemagic build could no
 | Low | TestFlight export-compliance prompts were not explicitly described by the app plist. | Declared `ITSAppUsesNonExemptEncryption: false`; the app contains no non-exempt encryption feature. |
 | Low | The app's no-upload/no-tracking behavior was specified only in prose. | Added an app privacy manifest declaring no tracking, collected-data types, tracking domains, or required-reason API categories. |
 | High | The unsigned cloud gate did not exercise seed fetch, Core ML export, or verify the compiled model resource. | Added `ios-model-compile-check`, including pinned SHA verification, export, XCTest/build, and `.mlmodelc`/manifest bundle assertions. |
+| High | The generated `.mlpackage` was included through the whole `Resources` directory, forcing it into Copy Bundle Resources; Xcode built successfully without invoking the Core ML compiler or producing `GolfBall.mlmodelc`. | Registered `GolfBall.mlpackage` individually under target sources, required XcodeGen 2.38.0+, and added generated-project, Core ML build-log, full `.mlmodelc` enumeration, runtime-name, and app-bundle validation. |
 | High | No field diagnostics or recoverable failure evidence existed. | Added bounded JSONL metrics, scene timing, local-only latest-frame evidence, and separate Field Diagnostics UI for verified finds, false positives, and misses. |
 | High | Camera lifecycle and thermal load were incomplete. | Added interruption/runtime/background/foreground observers, permission recovery, portrait rotation, latest-frame-only admission/drop counters, and 20/15/8/4 FPS thermal policy. |
 | High | Training split and comparison rules were prose-only. | Added manifest-driven preparation, dataset/label/leakage/duplicate/Hard Negative validation, provenance hashes, and field-KPI model comparison. |
@@ -45,8 +46,8 @@ Passed on Windows after the changes:
 
 - `scripts/bootstrap_windows.ps1`: virtual environment, pinned dependency install, seed download, SHA256 verification,
   and Python tests;
-- Python `unittest`: 25/25 passing, including session split/Hard Negative validation, field-log KPI summary, and
-  comparable model ranking;
+- Python `unittest`: 28/28 passing, including session split/Hard Negative validation, field-log KPI summary,
+  comparable model ranking, XcodeGen model-source configuration, and generated-pbxproj phase validation;
 - Python `compileall` plus `--help` smoke checks for all CLIs;
 - PowerShell parser for `bootstrap_windows.ps1` and Bash syntax check for `bootstrap_mac.sh`;
 - Bash syntax checks for all 23 Codemagic script blocks;

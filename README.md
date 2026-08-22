@@ -14,8 +14,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 Then push the repository to GitHub and use the included Codemagic workflows. `ios-compile-check` runs the Swift
 unit tests and an unsigned Xcode compile. `ios-model-compile-check` additionally downloads the SHA256-pinned seed,
 exports `GolfBall.mlpackage`, runs tests/build, and fails unless `GolfBall.mlmodelc` is present in the Simulator app.
-Neither workflow needs Apple signing. `ios-testflight` repeats the model/export/test path, assigns a unique build
-number, signs the IPA, and uploads it to App Store Connect. Full setup: `docs/WINDOWS_CLOUD_BUILD.md`.
+It also inspects the generated `project.pbxproj` to require the model in the application target's Sources phase and
+requires a `coremlcompiler`/Core ML compilation operation in a clean Xcode build log before checking the bundle.
+The lightweight model-free workflow uses `project.compile-check.yml`; the full `project.yml` deliberately requires
+the exported model and manifest. Neither workflow needs Apple signing. `ios-testflight` repeats the model/export/test
+path, assigns a unique build number, signs the IPA, and uploads it to App Store Connect. Full setup:
+`docs/WINDOWS_CLOUD_BUILD.md`.
 
 The final app still runs AI inference locally on the iPhone; the cloud Mac is only a build/signing machine.
 

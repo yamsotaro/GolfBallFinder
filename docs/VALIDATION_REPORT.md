@@ -22,8 +22,10 @@ exact uploaded revision.
 
 The generation environment is not macOS and does not have the iOS SDK, Xcode signing system, Core ML compilation toolchain, or the user's iPhone 16 Pro. Therefore these remain required gates on the user's Mac/Codex environment:
 
-1. Run the new unsigned `ios-model-compile-check` to execute seed download/hash, Core ML export, the expanded XCTest
-   suite, Simulator build, and explicit bundled `GolfBall.mlmodelc` check.
+1. Re-run unsigned `ios-model-compile-check`. The previous run completed seed export, XCTest, and Simulator build,
+   but correctly failed its final bundle assertion because the package had been forced into Copy Bundle Resources.
+   The revised gate now verifies the generated Sources phase, a Core ML compiler operation, all `.mlmodelc`
+   products, and the explicit bundled `GolfBall.mlmodelc` result.
 2. Re-run `ios-compile-check` for the diagnostics/camera/training revision; Windows Swift parsing is syntax-only.
 3. After Apple approval, run signing/upload and install on iPhone 16 Pro.
 4. Check camera orientation/overlay alignment and lifecycle on hardware.
@@ -42,8 +44,8 @@ Completed in the current Windows workspace:
   now the regression gate for utility/configuration behavior.
 - App Store build-number injection, App Icon asset configuration, simulator-test CI steps, safe frame session IDs,
   and export manifests were added during the audit.
-- After Field Diagnostics/training changes, Windows bootstrap passed again, including seed SHA verification and
-  25 Python tests. Swift tree-sitter syntax parsing passed for 20 Swift app/test files, and all 23 Codemagic script
+- After the Core ML target-registration fix, Windows bootstrap passed again, including seed SHA verification and
+  28 Python tests. Swift tree-sitter syntax parsing passed for 20 Swift app/test files, and all 23 Codemagic script
   blocks passed Bash syntax checking.
 
 The earlier Swift parser result applies to the generated starter revision, not automatically to later edits.

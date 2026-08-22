@@ -1,0 +1,16 @@
+# Model-free overlay used only by the lightweight unsigned compile check.
+# The full project.yml intentionally requires the exported model and manifest.
+include:
+  - path: project.yml
+    relativePaths: false
+
+targets:
+  GolfBallFinder:
+    sources:REPLACE:
+      - path: GolfBallFinder
+        excludes:
+          - Resources
+          - Info.plist
+          - PrivacyInfo.xcprivacy
+    resources:REPLACE:
+      - path: GolfBallFinder/PrivacyInfo.xcprivacy
