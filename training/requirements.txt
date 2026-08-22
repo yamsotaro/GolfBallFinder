@@ -1,0 +1,10 @@
+ultralytics==8.4.126
+coremltools==9.0
+# Core ML 9.0 officially covers PyTorch 2.7. Keep export isolated from newer
+# training-only PyTorch releases until the cloud export gate proves compatibility.
+torch==2.7.0
+torchvision==0.22.0
+numpy==1.26.4
+opencv-python==4.10.0.84
+PyYAML==6.0.3
+huggingface_hub==1.28.0

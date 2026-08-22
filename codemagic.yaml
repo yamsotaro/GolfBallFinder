@@ -1,0 +1,181 @@
+workflows:
+  ios-compile-check:
+    name: iOS unsigned compile check
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+    scripts:
+      - name: Install XcodeGen
+        script: |
+          set -euo pipefail
+          xcodebuild -version
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+      - name: Generate Xcode project
+        script: |
+          set -euo pipefail
+          xcodegen generate
+      - name: Resolve Swift packages
+        script: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project GolfBallFinder.xcodeproj \
+            -scheme GolfBallFinder
+      - name: Run unit tests on an available iPhone simulator
+        script: |
+          set -euo pipefail
+          SIMULATOR_UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          devices = [device for runtime in data["devices"].values() for device in runtime if device.get("isAvailable") and "iPhone" in device.get("name", "")]
+          selected = next((device for device in devices if device["name"] == "iPhone 16 Pro"), devices[0] if devices else None)
+          if selected is None:
+              raise SystemExit("No available iPhone simulator")
+          print(selected["udid"])
+          ')"
+          xcodebuild test \
+            -project GolfBallFinder.xcodeproj \
+            -scheme GolfBallFinder \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            CODE_SIGNING_ALLOWED=NO
+      - name: Compile for iOS Simulator without signing
+        script: |
+          set -euo pipefail
+          xcodebuild build \
+            -project GolfBallFinder.xcodeproj \
+            -scheme GolfBallFinder \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+    artifacts:
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+
+  ios-testflight:
+    name: iPhone TestFlight build
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+
+    # In Codemagic > Team settings > Developer Portal, create an App Store
+    # Connect integration with exactly this reference name.
+    integrations:
+      app_store_connect: golfballfinder-appstore
+
+    environment:
+      # Create this variable group in Codemagic:
+      #   BUNDLE_ID = your globally unique id, e.g. com.example.golfballfinder
+      groups:
+        - golfballfinder_config
+      xcode: latest
+
+    scripts:
+      - name: Validate cloud configuration
+        script: |
+          set -euo pipefail
+          test -n "$BUNDLE_ID" || { echo "BUNDLE_ID is missing in group golfballfinder_config"; exit 2; }
+          test -n "$BUILD_NUMBER" || { echo "Codemagic BUILD_NUMBER is missing"; exit 2; }
+          echo "Building bundle id: $BUNDLE_ID"
+          echo "App Store build number: $BUILD_NUMBER"
+
+      - name: Install XcodeGen and Python 3.11
+        script: |
+          set -euo pipefail
+          xcodebuild -version
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          brew list python@3.11 >/dev/null 2>&1 || brew install python@3.11
+
+      - name: Configure bundle identifier
+        script: |
+          set -euo pipefail
+          python3 scripts/configure_bundle_id.py \
+            --bundle-id "$BUNDLE_ID" \
+            --build-number "$BUILD_NUMBER"
+
+      - name: Prepare seed Core ML model if no model is committed
+        script: |
+          set -euo pipefail
+          export YOLO_CONFIG_DIR="$CM_BUILD_DIR/.cache/ultralytics"
+          export HF_HOME="$CM_BUILD_DIR/.cache/huggingface"
+          mkdir -p "$YOLO_CONFIG_DIR" "$HF_HOME"
+          if [ ! -d GolfBallFinder/Resources/GolfBall.mlpackage ]; then
+            /opt/homebrew/bin/python3.11 -m venv .venv-ci
+            . .venv-ci/bin/activate
+            python -m pip install --upgrade pip
+            python -m pip install -r training/requirements.txt
+            python scripts/fetch_seed_model.py
+            python training/export_coreml.py \
+              --weights training/models/seed_golf_ball_yolov8n.pt
+          else
+            echo "Using committed GolfBall.mlpackage"
+            test -f GolfBallFinder/Resources/ModelManifest.json || {
+              echo "Committed GolfBall.mlpackage requires GolfBallFinder/Resources/ModelManifest.json"
+              exit 3
+            }
+          fi
+
+      - name: Generate Xcode project
+        script: |
+          set -euo pipefail
+          xcodegen generate
+
+      - name: Resolve Swift packages
+        script: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project GolfBallFinder.xcodeproj \
+            -scheme GolfBallFinder
+
+      - name: Run unit tests on an available iPhone simulator
+        script: |
+          set -euo pipefail
+          SIMULATOR_UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          devices = [device for runtime in data["devices"].values() for device in runtime if device.get("isAvailable") and "iPhone" in device.get("name", "")]
+          selected = next((device for device in devices if device["name"] == "iPhone 16 Pro"), devices[0] if devices else None)
+          if selected is None:
+              raise SystemExit("No available iPhone simulator")
+          print(selected["udid"])
+          ')"
+          xcodebuild test \
+            -project GolfBallFinder.xcodeproj \
+            -scheme GolfBallFinder \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Initialize signing keychain
+        script: keychain initialize
+
+      - name: Fetch/create App Store signing files
+        script: |
+          set -euo pipefail
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE \
+            --create
+
+      - name: Add signing certificate
+        script: keychain add-certificates
+
+      - name: Apply provisioning profiles
+        script: xcode-project use-profiles --project "$CM_BUILD_DIR/GolfBallFinder.xcodeproj"
+
+      - name: Build signed IPA
+        script: |
+          set -euo pipefail
+          xcode-project build-ipa \
+            --project "$CM_BUILD_DIR/GolfBallFinder.xcodeproj" \
+            --scheme GolfBallFinder
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: false
+        submit_to_app_store: false

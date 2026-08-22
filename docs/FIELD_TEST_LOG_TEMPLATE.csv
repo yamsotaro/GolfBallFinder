@@ -1,0 +1,3 @@
+session_id,timestamp_local,app_version,build_number,model_checkpoint_sha256,device,ios_version,lens,scene_type,ball_present,ball_visibility_pct,distance_m,lighting,rough_depth,found_within_10s,time_to_confirm_ms,false_confirmed_alerts,inference_p50_ms,inference_p95_ms,thermal_state,notes
+example_positive_001,2026-08-22T09:00:00+09:00,0.1.0,1,replace-me,iPhone 16 Pro,replace-me,1x,positive,true,50,1.5,sun,deep,,,,,,,Replace this example row with a measured field scene
+example_negative_001,2026-08-22T09:05:00+09:00,0.1.0,1,replace-me,iPhone 16 Pro,replace-me,1x,negative,false,0,,sun,deep,,,0,,,,Record the duration in notes when it differs from 60 seconds

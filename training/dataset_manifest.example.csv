@@ -1,0 +1,3 @@
+session_id,split,source_type,source_uri_or_note,license,device,lens,lighting,rough_depth,ball_visibility_pct,positive_frames,negative_frames,annotation_tool,notes
+session_001,train,self_capture,local/private,private,iPhone 16 Pro,1x,sun,deep,50,0,0,,Example only
+public_001,train,public_dataset,https://example.invalid/dataset,CC-BY-4.0,n/a,n/a,mixed,mixed,mixed,0,0,,Replace with exact dataset/version/attribution

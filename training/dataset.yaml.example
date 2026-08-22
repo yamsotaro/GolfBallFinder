@@ -1,0 +1,8 @@
+# Copy to dataset.yaml and edit the paths after exporting/assembling a YOLO-format dataset.
+# IMPORTANT: split by recording session / golf-course scene, not adjacent video frames.
+path: ./datasets/golf_ball
+train: images/train
+val: images/val
+test: images/test
+names:
+  0: golf_ball
