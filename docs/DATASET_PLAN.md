@@ -75,6 +75,25 @@ course_C_overcast_clip_01..05 -> test
 
 Never distribute neighboring frames from one clip across multiple splits.
 
+The maintained manifest is `training/dataset_manifest.csv` (copy the example). Required pipeline columns are:
+
+```text
+session_id,split,source_dir,content_type
+```
+
+`content_type` is `positive`, `hard_negative`, or `mixed`. Build and validate without random frame splitting:
+
+```bash
+python training/prepare_dataset.py --manifest training/dataset_manifest.csv --output training/datasets/golf_ball_v1
+python training/validate_dataset.py \
+  --data training/datasets/golf_ball_v1/dataset.yaml \
+  --manifest training/datasets/golf_ball_v1/dataset_manifest.csv
+```
+
+The validator requires `images/<split>/<session_id>/...`, checks one-class YOLO boxes and boundaries, rejects a
+positive label in a Hard Negative session, and detects exact image duplicates crossing splits. `train.py` and
+`evaluate.py` call the same validation before model work and record dataset/manifest hashes.
+
 `training/extract_frames.py` writes each source video to a readable, path-hashed session directory and records a
 `session.json`. It refuses to mix with an existing extraction unless `--overwrite` is explicitly supplied; that
 flag removes only generated `frame_*.jpg` files for the matching session and preserves unrelated reviewer notes.
@@ -94,7 +113,10 @@ This enables slice-specific recall analysis beyond a single mAP number.
 Start:
 
 ```bash
-python training/train.py --base yolo26n.pt --epochs 120 --imgsz 640
+python training/train.py \
+  --data training/datasets/golf_ball_v1/dataset.yaml \
+  --manifest training/datasets/golf_ball_v1/dataset_manifest.csv \
+  --base yolo26n.pt --epochs 120 --imgsz 640
 ```
 
 Then compare one controlled YOLO11n run if useful. Keep the same dataset split and evaluation settings.
@@ -131,3 +153,8 @@ Primary outputs:
 - recall by occlusion/distance/light/rough bin;
 - iPhone inference p50/p95;
 - thermal behavior.
+
+Generate each model's device result from completed app JSONL scenes using `training/summarize_field_logs.py` (the
+checked-in field evaluation JSON is the schema example). Compare only matched device, protocol, and frozen-manifest
+runs with `training/compare_models.py`; its ordering prioritizes 10-second discovery, false confirmed alerts/min,
+and latency before offline mAP.

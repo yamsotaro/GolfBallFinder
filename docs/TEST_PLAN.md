@@ -35,7 +35,13 @@ Covered pure logic:
 - ROI lock after a candidate;
 - ROI release after repeated misses;
 - one-frame false positive remains only a candidate;
-- three spatially consistent hits confirm a ball.
+- three spatially consistent hits confirm a ball;
+- intermittent false positives and spatially inconsistent tracks do not confirm;
+- multiple candidates preserve the spatially consistent track;
+- confirmation/reset and one-time feedback behavior;
+- every screen edge, oversized/negative ROI clipping, and crop/aspect-fill coordinate edges;
+- inference busy/cadence gating has no pending backlog and accepts fresh frames after camera timestamp reset;
+- thermal policy monotonically reduces target inference FPS.
 
 ## Build gate
 
@@ -68,9 +74,13 @@ Record at least:
 - model load time;
 - live `inferenceMs` p50/p95;
 - processed FPS;
-- device temperature/thermal state if instrumentation is added;
+- device thermal state;
 - battery delta over a 10-minute scan;
-- full-frame, tile, ROI inference latency separately if a debug metrics logger is added.
+- full-frame, tile, ROI inference latency.
+
+The separate Field Diagnostics sheet records these fields at a bounded 2 Hz sample cadence while updating live
+metrics per completed inference. It also records scene starts, human-verified correct finds, false positives, and
+misses. Use the root `FIELD_TEST_PLAN.md` as the device execution protocol.
 
 Never substitute simulator performance for physical-device performance.
 
@@ -78,7 +88,7 @@ Never substitute simulator performance for physical-device performance.
 
 Minimum first serious field pass:
 
-- 20 positive scenes across at least 3 environmental conditions;
+- 30 positive scenes across at least 3 environmental conditions;
 - 10 negative-only scenes;
 - at least 5 deep-rough/partial-visibility scenes;
 - both 1x and 2x in selected scenes;

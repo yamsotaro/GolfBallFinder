@@ -11,7 +11,11 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\bootstrap_windows.ps1
 ```
 
-Then push the repository to GitHub and use the included Codemagic workflows. `ios-compile-check` runs the Swift unit tests and a real unsigned Xcode compile on a hosted Mac; `ios-testflight` repeats the tests, performs Core ML export, assigns a unique Codemagic build number, signs the IPA, and uploads it to App Store Connect. Full setup: `docs/WINDOWS_CLOUD_BUILD.md`.
+Then push the repository to GitHub and use the included Codemagic workflows. `ios-compile-check` runs the Swift
+unit tests and an unsigned Xcode compile. `ios-model-compile-check` additionally downloads the SHA256-pinned seed,
+exports `GolfBall.mlpackage`, runs tests/build, and fails unless `GolfBall.mlmodelc` is present in the Simulator app.
+Neither workflow needs Apple signing. `ios-testflight` repeats the model/export/test path, assigns a unique build
+number, signs the IPA, and uploads it to App Store Connect. Full setup: `docs/WINDOWS_CLOUD_BUILD.md`.
 
 The final app still runs AI inference locally on the iPhone; the cloud Mac is only a build/signing machine.
 
@@ -57,6 +61,8 @@ Then open the project, choose your Signing Team, select the connected iPhone, an
 - `docs/VALIDATION_REPORT.md` — checks already completed here vs. Apple-toolchain/device gates still required.
 - `docs/AUDIT_REPORT.md` — current Windows audit findings, fixes, validation evidence, and remaining gates.
 - `docs/WINDOWS_CLOUD_BUILD.md` — Windows + hosted macOS + TestFlight deployment with no physical Mac.
+- `FIELD_TEST_PLAN.md` — directly executable iPhone field protocol and KPI definitions.
+- `NEXT_HUMAN_STEPS.md` — private Apple/Codemagic/TestFlight actions after enrollment approval.
 
 ## Current MVP architecture
 
@@ -116,13 +122,20 @@ python training/extract_frames.py ~/Videos/rough_session_*.MOV --interval 0.75
 6. Train:
 
 ```bash
-python training/train.py --data training/dataset.yaml --base yolo26n.pt --epochs 120 --imgsz 640
+python training/train.py \
+  --data training/datasets/golf_ball_v1/dataset.yaml \
+  --manifest training/datasets/golf_ball_v1/dataset_manifest.csv \
+  --base yolo26n.pt --epochs 120 --imgsz 640
 ```
 
 7. Evaluate:
 
 ```bash
-python training/evaluate.py --weights runs/golfball/golf_ball_yolo26n/weights/best.pt --split test
+python training/evaluate.py \
+  --weights runs/golfball/golf_ball_yolo26n/weights/best.pt \
+  --data training/datasets/golf_ball_v1/dataset.yaml \
+  --manifest training/datasets/golf_ball_v1/dataset_manifest.csv \
+  --split test --output runs/golfball/golf_ball_yolo26n/test_metrics.json
 ```
 
 8. Export and replace the bundled model:
@@ -134,6 +147,27 @@ xcodegen generate
 ```
 
 Re-run on the iPhone and collect false positives/false negatives for the next iteration.
+
+The Field Diagnostics sheet records inference/thermal/scan/bbox timing as JSONL. A human can mark a correct find,
+`これはボールではない`, or a miss; the app stores the latest frame and metadata locally under Files > On My
+iPhone > Golf Ball Finder > FieldDiagnostics. Nothing is uploaded automatically.
+
+For a reproducible session-level dataset:
+
+```bash
+cp training/dataset_manifest.example.csv training/dataset_manifest.csv
+# Edit source_dir/split/content_type, keeping every recording session in exactly one split.
+python training/prepare_dataset.py \
+  --manifest training/dataset_manifest.csv \
+  --output training/datasets/golf_ball_v1
+python training/validate_dataset.py \
+  --data training/datasets/golf_ball_v1/dataset.yaml \
+  --manifest training/datasets/golf_ball_v1/dataset_manifest.csv
+```
+
+`training/summarize_field_logs.py` converts completed positive/negative JSONL scenes into field-result JSON.
+`training/compare_models.py` compares those results only when protocol, frozen manifest hash, and iPhone device
+match. Its ranking starts with 10-second discovery, then false confirmed alerts/min, then latency.
 
 Use `docs/FIELD_TEST_LOG_TEMPLATE.csv` for the first repeatable device/field pass. Do not fill target values into
 the result columns until they have actually been measured on the iPhone 16 Pro.

@@ -59,4 +59,51 @@ final class ScanSchedulerTests: XCTestCase {
         XCTAssertEqual(scheduler.nextRegion(), .full)
         XCTAssertEqual(scheduler.nextRegion(), .tile(AppConfig.searchTiles[1]))
     }
+
+    func testROINearEveryScreenCornerIsClippedToUnitFrame() {
+        let edgeOrigins: [CGPoint] = [
+            CGPoint(x: -0.03, y: -0.03),
+            CGPoint(x: 0.98, y: -0.03),
+            CGPoint(x: -0.03, y: 0.98),
+            CGPoint(x: 0.98, y: 0.98),
+        ]
+
+        for origin in edgeOrigins {
+            var scheduler = ScanScheduler()
+            scheduler.lock(on: DetectionObservation(
+                normalizedRect: CGRect(origin: origin, size: CGSize(width: 0.05, height: 0.05)),
+                confidence: 0.5,
+                className: "golf_ball",
+                source: .tile,
+                timestamp: 0
+            ))
+            guard case .roi(let roi) = scheduler.nextRegion() else {
+                return XCTFail("expected ROI at edge")
+            }
+            XCTAssertGreaterThanOrEqual(roi.minX, 0)
+            XCTAssertGreaterThanOrEqual(roi.minY, 0)
+            XCTAssertLessThanOrEqual(roi.maxX, 1)
+            XCTAssertLessThanOrEqual(roi.maxY, 1)
+            XCTAssertGreaterThan(roi.width, 0)
+            XCTAssertGreaterThan(roi.height, 0)
+        }
+    }
+
+    func testUnlockReturnsToDeterministicBroadSearch() {
+        var scheduler = ScanScheduler()
+        _ = scheduler.nextRegion()
+        scheduler.lock(on: DetectionObservation(
+            normalizedRect: CGRect(x: 0.5, y: 0.5, width: 0.04, height: 0.04),
+            confidence: 0.5,
+            className: "golf_ball",
+            source: .fullFrame,
+            timestamp: 0
+        ))
+        scheduler.unlock()
+
+        guard case .tile = scheduler.nextRegion() else {
+            return XCTFail("unlock should resume the broad-search phase that was interrupted")
+        }
+        XCTAssertEqual(scheduler.nextRegion(), .full)
+    }
 }

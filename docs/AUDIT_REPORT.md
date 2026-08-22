@@ -34,6 +34,10 @@ branch protection, and the ability to start a connected Codemagic build could no
 | Medium | Initial field results had no checked-in schema. | Added `docs/FIELD_TEST_LOG_TEMPLATE.csv`; result cells remain deliberately unclaimed. |
 | Low | TestFlight export-compliance prompts were not explicitly described by the app plist. | Declared `ITSAppUsesNonExemptEncryption: false`; the app contains no non-exempt encryption feature. |
 | Low | The app's no-upload/no-tracking behavior was specified only in prose. | Added an app privacy manifest declaring no tracking, collected-data types, tracking domains, or required-reason API categories. |
+| High | The unsigned cloud gate did not exercise seed fetch, Core ML export, or verify the compiled model resource. | Added `ios-model-compile-check`, including pinned SHA verification, export, XCTest/build, and `.mlmodelc`/manifest bundle assertions. |
+| High | No field diagnostics or recoverable failure evidence existed. | Added bounded JSONL metrics, scene timing, local-only latest-frame evidence, and separate Field Diagnostics UI for verified finds, false positives, and misses. |
+| High | Camera lifecycle and thermal load were incomplete. | Added interruption/runtime/background/foreground observers, permission recovery, portrait rotation, latest-frame-only admission/drop counters, and 20/15/8/4 FPS thermal policy. |
+| High | Training split and comparison rules were prose-only. | Added manifest-driven preparation, dataset/label/leakage/duplicate/Hard Negative validation, provenance hashes, and field-KPI model comparison. |
 
 ## Validation evidence
 
@@ -41,26 +45,27 @@ Passed on Windows after the changes:
 
 - `scripts/bootstrap_windows.ps1`: virtual environment, pinned dependency install, seed download, SHA256 verification,
   and Python tests;
-- Python `unittest`: 13/13 passing;
+- Python `unittest`: 25/25 passing, including session split/Hard Negative validation, field-log KPI summary, and
+  comparable model ranking;
 - Python `compileall` plus `--help` smoke checks for all CLIs;
 - PowerShell parser for `bootstrap_windows.ps1` and Bash syntax check for `bootstrap_mac.sh`;
-- Bash syntax checks for all 17 Codemagic script blocks;
+- Bash syntax checks for all 23 Codemagic script blocks;
 - YAML parse for XcodeGen, Codemagic, and dataset examples; JSON parse for asset catalogs;
 - seed checkpoint load: task `detect`, only class `golf_ball`, pinned SHA256
   `45e8f8bd8975dc7f437919a11c3f6ee1fe7c8ae40b0f49910d0677d1c0326791`;
 - synthetic OpenCV video extraction: 10 decoded frames at 10 FPS and 0.2-second interval produced five frames plus
   `session.json`;
-- Swift tree-sitter syntax parse: all 15 app/test `.swift` files passed;
+- Swift tree-sitter syntax parse: all 20 app/test `.swift` files passed;
 - macOS arm64 / CPython 3.11 pip dry-run: the pinned Core ML export dependency set resolved.
 
 The tree-sitter result is syntax-only. It does not claim Swift type-checking, iOS SDK compatibility, or linking.
 
 ## Remaining gates and risks
 
-1. **Cloud Apple-toolchain gate:** run `ios-compile-check`. This is the first actual XcodeGen, Swift package
-   resolution, Swift/iOS SDK type-check, link, and XCTest run for the edited revision.
-2. **Core ML export gate:** run the signed workflow on hosted macOS. Dependency resolution passed, but conversion
-   and Core ML package compilation cannot be claimed until that run completes.
+1. **Cloud Apple-toolchain gate:** the owner reports the prior `ios-compile-check`, XcodeGen, package resolution,
+   Simulator XCTest and build succeeded. Re-run it for the current diagnostics/camera revision.
+2. **Core ML export gate:** run unsigned `ios-model-compile-check`. Conversion and Core ML package compilation
+   cannot be claimed until that workflow completes.
 3. **Signing/App Store Connect:** supply the private Codemagic integration and `BUNDLE_ID` externally. No key,
    certificate, provisioning profile, team ID, or `.p8` belongs in Git.
 4. **Physical iPhone gate:** camera permission, preview orientation/aspect fill, overlay alignment, 1x/2x behavior,
@@ -73,10 +78,10 @@ The tree-sitter result is syntax-only. It does not claim Swift type-checking, iO
 
 ## Next implementation order
 
-1. Push the audited revision to the intended private Git remote and run `ios-compile-check`.
-2. Fix any exact Xcode/Ultralytics API or concurrency diagnostics from that run; do not proceed on a red compile gate.
-3. Configure the external Apple/Codemagic values and run `ios-testflight`; keep automatic TestFlight submission off
+1. Push the current revision to the intended private Git remote and run unsigned `ios-model-compile-check`.
+2. Fix any exact Core ML/Xcode/Ultralytics API or concurrency diagnostics from that run; do not proceed on a red gate.
+3. After Apple approval, configure the external Apple/Codemagic values and run `ios-testflight`; keep automatic TestFlight submission off
    for the first signing diagnosis, then enable it if desired after the IPA upload is confirmed.
-4. Install the processed internal build on iPhone 16 Pro and complete the smoke/performance matrix.
-5. Record at least 20 positive and 10 negative-only scenes, then train/fine-tune against actual misses and hard
+4. Install the processed internal build on iPhone 16 Pro and execute `FIELD_TEST_PLAN.md`.
+5. Record at least 30 positive and 10 one-minute negative-only scenes, then train/fine-tune against actual misses and hard
    negatives before tuning thresholds or adding a second-stage verifier.

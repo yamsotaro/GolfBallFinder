@@ -48,4 +48,47 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(mapped.height, 422, accuracy: 0.0001)
         XCTAssertEqual(mapped.width, 237.375, accuracy: 0.0001)
     }
+
+    func testOversizedROIClipsToWholeFrame() {
+        let roi = CGRect(x: -2, y: -1, width: 4, height: 3).clampedPreservingSize()
+        XCTAssertEqual(roi, CGRect(x: 0, y: 0, width: 1, height: 1))
+    }
+
+    func testCropMappingClipsNegativeLocalCoordinates() {
+        let mapped = mapCropRectToFullFrame(
+            CGRect(x: -0.5, y: -0.25, width: 0.75, height: 0.50),
+            cropRegion: CGRect(x: 0, y: 0, width: 0.4, height: 0.4)
+        )
+        XCTAssertEqual(mapped.minX, 0, accuracy: 0.0001)
+        XCTAssertEqual(mapped.minY, 0, accuracy: 0.0001)
+        XCTAssertEqual(mapped.maxX, 0.1, accuracy: 0.0001)
+        XCTAssertEqual(mapped.maxY, 0.1, accuracy: 0.0001)
+    }
+
+    func testAspectFillMapsFrameEdgesBeyondCroppedViewEdges() {
+        let leftEdge = aspectFillDisplayRect(
+            normalizedRect: CGRect(x: 0, y: 0.4, width: 0.02, height: 0.2),
+            imageSize: CGSize(width: 720, height: 1280),
+            viewSize: CGSize(width: 390, height: 844)
+        )
+        let rightEdge = aspectFillDisplayRect(
+            normalizedRect: CGRect(x: 0.98, y: 0.4, width: 0.02, height: 0.2),
+            imageSize: CGSize(width: 720, height: 1280),
+            viewSize: CGSize(width: 390, height: 844)
+        )
+        XCTAssertLessThan(leftEdge.minX, 0)
+        XCTAssertGreaterThan(rightEdge.maxX, 390)
+        XCTAssertEqual(leftEdge.midY, rightEdge.midY, accuracy: 0.0001)
+    }
+
+    func testZeroImageOrViewSizeProducesZeroDisplayRect() {
+        XCTAssertEqual(
+            aspectFillDisplayRect(
+                normalizedRect: CGRect(x: 0.2, y: 0.2, width: 0.1, height: 0.1),
+                imageSize: .zero,
+                viewSize: CGSize(width: 390, height: 844)
+            ),
+            .zero
+        )
+    }
 }

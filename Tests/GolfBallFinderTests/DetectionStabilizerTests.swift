@@ -65,6 +65,88 @@ final class DetectionStabilizerTests: XCTestCase {
         }
         XCTAssertFalse(output.shouldTriggerFeedback)
     }
+
+    func testIntermittentFalsePositiveDoesNotConfirm() {
+        var stabilizer = DetectionStabilizer()
+        let observation = DetectionObservation(
+            normalizedRect: CGRect(x: 0.45, y: 0.45, width: 0.03, height: 0.03),
+            confidence: 0.95,
+            className: "golf_ball",
+            source: .fullFrame,
+            timestamp: 0
+        )
+        let sequence: [[DetectionObservation]] = [[observation], [], [], [observation], []]
+
+        for candidates in sequence {
+            let output = stabilizer.update(candidates: candidates)
+            if case .found = output.state {
+                XCTFail("two intermittent hits in the five-frame window must not confirm")
+            }
+            XCTAssertFalse(output.shouldTriggerFeedback)
+        }
+    }
+
+    func testMultipleCandidatesPreferSpatiallyConsistentTrack() {
+        var stabilizer = DetectionStabilizer()
+        let near = CGRect(x: 0.30, y: 0.30, width: 0.04, height: 0.04)
+        let far = CGRect(x: 0.82, y: 0.08, width: 0.04, height: 0.04)
+
+        for index in 0..<3 {
+            let tracked = DetectionObservation(
+                normalizedRect: near.offsetBy(dx: CGFloat(index) * 0.003, dy: 0),
+                confidence: 0.32,
+                className: "golf_ball",
+                source: .tile,
+                timestamp: Double(index)
+            )
+            let distractor = DetectionObservation(
+                normalizedRect: far,
+                confidence: 0.98,
+                className: "golf_ball",
+                source: .fullFrame,
+                timestamp: Double(index)
+            )
+            let output = stabilizer.update(candidates: index == 0 ? [tracked] : [distractor, tracked])
+            if index == 2 {
+                guard case .found(let confirmed) = output.state else {
+                    return XCTFail("spatially consistent candidate should confirm")
+                }
+                XCTAssertLessThan(confirmed.center.x, 0.5)
+                XCTAssertTrue(output.shouldTriggerFeedback)
+            }
+        }
+    }
+
+    func testResetRequiresFreshConfirmationAndRetriggersOnce() {
+        var stabilizer = DetectionStabilizer()
+        let observation = DetectionObservation(
+            normalizedRect: CGRect(x: 0.50, y: 0.50, width: 0.03, height: 0.03),
+            confidence: 0.4,
+            className: "golf_ball",
+            source: .roi,
+            timestamp: 0
+        )
+        for _ in 0..<AppConfig.requiredHits {
+            _ = stabilizer.update(candidates: [observation])
+        }
+
+        stabilizer.reset()
+        let firstAfterReset = stabilizer.update(candidates: [observation])
+        guard case .candidate = firstAfterReset.state else {
+            return XCTFail("reset must discard prior confirmation history")
+        }
+        XCTAssertFalse(firstAfterReset.shouldTriggerFeedback)
+
+        var reconfirmed = firstAfterReset
+        for _ in 1..<AppConfig.requiredHits {
+            reconfirmed = stabilizer.update(candidates: [observation])
+        }
+        guard case .found = reconfirmed.state else { return XCTFail("fresh hits should reconfirm") }
+        XCTAssertTrue(reconfirmed.shouldTriggerFeedback)
+
+        let repeated = stabilizer.update(candidates: [observation])
+        XCTAssertFalse(repeated.shouldTriggerFeedback, "continuous found state must not repeat haptic/audio")
+    }
 }
 
 extension DetectionStabilizerTests {

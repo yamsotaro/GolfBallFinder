@@ -22,6 +22,11 @@ enum AppConfig {
 
     /// Inference scheduling. One model invocation per processed frame keeps thermals bounded.
     static let processedFPS: Double = 20
+    static let fairThermalFPS: Double = 15
+    static let seriousThermalFPS: Double = 8
+    static let criticalThermalFPS: Double = 4
+    static let diagnosticsSampleInterval: TimeInterval = 0.5
+    static let feedbackCaptureGraceSeconds: TimeInterval = 10
     static let roiLockFrames = 8
     static let roiLostTolerance = 3
     static let minimumROISide: CGFloat = 0.34

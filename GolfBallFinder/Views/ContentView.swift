@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @StateObject private var camera = CameraController()
+    @State private var showsDiagnostics = false
 
     var body: some View {
         ZStack {
@@ -12,7 +13,19 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 12) {
-                statusPill
+                HStack(alignment: .top, spacing: 10) {
+                    statusPill
+                    Spacer(minLength: 0)
+                    Button {
+                        showsDiagnostics = true
+                    } label: {
+                        Image(systemName: "waveform.path.ecg")
+                            .font(.headline)
+                            .padding(11)
+                            .background(.black.opacity(0.70), in: Circle())
+                    }
+                    .accessibilityLabel("Field Diagnostics")
+                }
                 Spacer()
                 bottomControls
             }
@@ -23,6 +36,9 @@ struct ContentView: View {
         .background(.black)
         .onAppear { camera.start() }
         .onDisappear { camera.stop() }
+        .sheet(isPresented: $showsDiagnostics) {
+            FieldDiagnosticsView(camera: camera)
+        }
     }
 
     @ViewBuilder
@@ -34,11 +50,6 @@ struct ContentView: View {
             Text(statusText)
                 .font(.headline.monospacedDigit())
                 .lineLimit(2)
-            if camera.inferenceMs > 0 {
-                Text(String(format: "%.0fms", camera.inferenceMs))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -73,6 +84,8 @@ struct ContentView: View {
             return "候補を確認中"
         case .found:
             return "ボール発見"
+        case .paused(let message):
+            return message
         case .error(let message):
             return message
         }
@@ -82,6 +95,7 @@ struct ContentView: View {
         switch camera.finderState {
         case .found: return .green
         case .candidate: return .yellow
+        case .paused: return .gray
         case .error: return .red
         case .loading: return .orange
         case .scanning: return .cyan

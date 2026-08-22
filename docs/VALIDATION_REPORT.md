@@ -12,18 +12,22 @@ Generated/checked: 2026-08-22.
 - CLI examples were cross-checked so training uses `--base`, evaluation/export use `--weights`.
 - Ultralytics iOS API shape used by `GolfBallDetector` was checked against the pinned v8.9.13 source (`YOLO` async load, `isLoaded`, `setThresholds`, `CIImage` call, `YOLOResult.boxes`, `Box.xywhn`, `Box.conf`, `YOLOResult.inferenceMs`).
 
-## Checks not possible in this environment
+## Apple-toolchain checks reported complete before the current feature revision
+
+The project owner reports that Codemagic `ios-compile-check`, XcodeGen, Swift Package resolution, iPhone Simulator
+unit tests, and iOS Simulator compilation succeeded. This closes the original starter/audit compile gate for that
+exact uploaded revision.
+
+## Checks still required after the current feature revision
 
 The generation environment is not macOS and does not have the iOS SDK, Xcode signing system, Core ML compilation toolchain, or the user's iPhone 16 Pro. Therefore these remain required gates on the user's Mac/Codex environment:
 
-1. `xcodegen generate` using the installed XcodeGen version.
-2. Swift type-check/link against the actual iOS SDK and Ultralytics v8.9.13 package.
-3. Python dependency installation on the selected macOS/Python version.
-4. Third-party seed checkpoint download/hash verification and Core ML export.
-5. Simulator build/test.
-6. Development signing and install on iPhone 16 Pro.
-7. Camera orientation/overlay alignment check on hardware.
-8. Real-device latency, thermal, battery, and detection-quality measurements.
+1. Run the new unsigned `ios-model-compile-check` to execute seed download/hash, Core ML export, the expanded XCTest
+   suite, Simulator build, and explicit bundled `GolfBall.mlmodelc` check.
+2. Re-run `ios-compile-check` for the diagnostics/camera/training revision; Windows Swift parsing is syntax-only.
+3. After Apple approval, run signing/upload and install on iPhone 16 Pro.
+4. Check camera orientation/overlay alignment and lifecycle on hardware.
+5. Measure real-device latency, thermal, battery, discovery, and false alerts.
 
 Codex should treat any failure at these gates as an implementation bug/toolchain compatibility task and fix the repository rather than merely documenting it.
 
@@ -38,8 +42,11 @@ Completed in the current Windows workspace:
   now the regression gate for utility/configuration behavior.
 - App Store build-number injection, App Icon asset configuration, simulator-test CI steps, safe frame session IDs,
   and export manifests were added during the audit.
+- After Field Diagnostics/training changes, Windows bootstrap passed again, including seed SHA verification and
+  25 Python tests. Swift tree-sitter syntax parsing passed for 20 Swift app/test files, and all 23 Codemagic script
+  blocks passed Bash syntax checking.
 
 The earlier Swift parser result applies to the generated starter revision, not automatically to later edits.
-Because Swift/Xcode is unavailable on this Windows host, the updated Swift sources still require the
-`ios-compile-check` Codemagic workflow before they may be described as compiling. Physical-device and field claims
-remain unverified until the iPhone 16 Pro test matrix is executed.
+Because Swift/Xcode is unavailable on this Windows host, every later Swift edit still requires the relevant
+Codemagic unsigned workflow before that edit may be described as compiling. Physical-device and field claims remain
+unverified until `FIELD_TEST_PLAN.md` is executed.

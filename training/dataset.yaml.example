@@ -1,5 +1,7 @@
 # Copy to dataset.yaml and edit the paths after exporting/assembling a YOLO-format dataset.
 # IMPORTANT: split by recording session / golf-course scene, not adjacent video frames.
+# Each split must retain session directories: images/train/<session_id>/frame.jpg.
+# Generate this structure with prepare_dataset.py and validate it with validate_dataset.py.
 path: ./datasets/golf_ball
 train: images/train
 val: images/val

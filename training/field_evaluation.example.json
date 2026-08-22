@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "model_id": "golf_ball_yolo26n_build_001",
+  "evaluation_protocol_id": "field-v1-frozen-scenes",
+  "dataset_manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "device": "iPhone 16 Pro",
+  "metrics": {
+    "scene_discovery_rate_10s": 0.0,
+    "false_confirmed_alerts_per_min": 0.0,
+    "detection_latency_ms_p50": 0.0,
+    "detection_latency_ms_p90": 0.0,
+    "occlusion_success_rate": {
+      "visible_100": 0.0,
+      "visible_75": 0.0,
+      "visible_50": 0.0,
+      "visible_25": 0.0,
+      "visible_10": 0.0
+    },
+    "thermal": {
+      "duration_minutes": 0.0,
+      "nominal_seconds": 0.0,
+      "fair_seconds": 0.0,
+      "serious_seconds": 0.0,
+      "critical_seconds": 0.0
+    }
+  },
+  "notes": "Template values are placeholders, not measured results."
+}

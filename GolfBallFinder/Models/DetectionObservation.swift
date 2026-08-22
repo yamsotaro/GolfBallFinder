@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 enum ScanSource: String, Sendable {
-    case fullFrame
+    case fullFrame = "full"
     case tile
     case roi
 }
@@ -24,5 +24,19 @@ enum FinderState: Equatable, Sendable {
     case scanning
     case candidate(DetectionObservation)
     case found(DetectionObservation)
+    case paused(String)
     case error(String)
+}
+
+extension FinderState {
+    var diagnosticName: String {
+        switch self {
+        case .loading: return "loading"
+        case .scanning: return "scanning"
+        case .candidate: return "candidate"
+        case .found: return "found"
+        case .paused: return "paused"
+        case .error: return "error"
+        }
+    }
 }

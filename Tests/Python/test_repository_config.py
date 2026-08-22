@@ -101,7 +101,19 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertFalse(project["targets"]["GolfBallFinder"]["info"]["properties"]["ITSAppUsesNonExemptEncryption"])
         self.assertEqual(dataset["names"], {0: "golf_ball"})
         self.assertIn("ios-compile-check", codemagic["workflows"])
+        self.assertIn("ios-model-compile-check", codemagic["workflows"])
         self.assertIn("ios-testflight", codemagic["workflows"])
+
+    def test_model_compile_workflow_verifies_seed_and_bundled_model(self) -> None:
+        workflow = yaml.safe_load((ROOT / "codemagic.yaml").read_text(encoding="utf-8"))["workflows"][
+            "ios-model-compile-check"
+        ]
+        scripts = "\n".join(step["script"] for step in workflow["scripts"])
+        self.assertIn("fetch_seed_model.py", scripts)
+        self.assertIn("EXPECTED_SHA256", scripts)
+        self.assertIn("export_coreml.py", scripts)
+        self.assertIn("GolfBall.mlmodelc", scripts)
+        self.assertIn("CODE_SIGNING_ALLOWED=NO", scripts)
 
     def test_release_workflow_sets_unique_build_number(self) -> None:
         text = (ROOT / "codemagic.yaml").read_text(encoding="utf-8")
@@ -138,6 +150,42 @@ class RepositoryConfigurationTests(unittest.TestCase):
                 "GolfBallFinder"
             ]["resources"],
         )
+
+    def test_field_diagnostics_are_local_and_files_recoverable(self) -> None:
+        project = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))
+        properties = project["targets"]["GolfBallFinder"]["info"]["properties"]
+        self.assertTrue(properties["UIFileSharingEnabled"])
+        self.assertTrue(properties["LSSupportsOpeningDocumentsInPlace"])
+
+        source = (ROOT / "GolfBallFinder" / "Diagnostics" / "FieldDiagnostics.swift").read_text(
+            encoding="utf-8"
+        )
+        for field in (
+            "inferenceLatencyMs",
+            "effectiveInferenceFPS",
+            "thermalState",
+            "detectionConfidence",
+            "scanMode",
+            "candidateToConfirmedMs",
+            "sceneStartToConfirmedMs",
+            "detectedBBox",
+            "timestamp",
+            "false_positive",
+            "missed_golf_ball",
+        ):
+            self.assertIn(field, source)
+
+    def test_inference_path_discards_late_frames_and_has_thermal_policy(self) -> None:
+        camera = (ROOT / "GolfBallFinder" / "Camera" / "CameraController.swift").read_text(
+            encoding="utf-8"
+        )
+        gate = (ROOT / "GolfBallFinder" / "Detection" / "InferenceFrameGate.swift").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("alwaysDiscardsLateVideoFrames = true", camera)
+        self.assertIn("guard !inferenceSuspended", camera)
+        self.assertNotIn("pendingFrame", gate)
+        self.assertIn("case .critical", gate)
 
 
 if __name__ == "__main__":

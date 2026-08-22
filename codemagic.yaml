@@ -54,6 +54,112 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
 
+  ios-model-compile-check:
+    name: iOS seed model export and unsigned compile check
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+    scripts:
+      - name: Install deterministic build tools
+        script: |
+          set -euo pipefail
+          xcodebuild -version
+          brew list xcodegen >/dev/null 2>&1 || brew install xcodegen
+          brew list python@3.11 >/dev/null 2>&1 || brew install python@3.11
+
+      - name: Fetch SHA256-pinned seed checkpoint
+        script: |
+          set -euo pipefail
+          export YOLO_CONFIG_DIR="$CM_BUILD_DIR/.cache/ultralytics"
+          export HF_HOME="$CM_BUILD_DIR/.cache/huggingface"
+          mkdir -p "$YOLO_CONFIG_DIR" "$HF_HOME"
+          /opt/homebrew/bin/python3.11 -m venv .venv-model-ci
+          . .venv-model-ci/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r training/requirements.txt
+          python scripts/fetch_seed_model.py
+          python -c '
+          from pathlib import Path
+          from scripts.fetch_seed_model import EXPECTED_SHA256, sha256
+          model = Path("training/models/seed_golf_ball_yolov8n.pt")
+          actual = sha256(model)
+          assert actual == EXPECTED_SHA256, (EXPECTED_SHA256, actual)
+          print(f"Verified seed SHA256: {actual}")
+          '
+
+      - name: Export and validate GolfBall.mlpackage
+        script: |
+          set -euo pipefail
+          . .venv-model-ci/bin/activate
+          python training/export_coreml.py \
+            --weights training/models/seed_golf_ball_yolov8n.pt
+          python -c '
+          import json
+          from pathlib import Path
+          from scripts.fetch_seed_model import EXPECTED_SHA256
+          package = Path("GolfBallFinder/Resources/GolfBall.mlpackage")
+          manifest_path = Path("GolfBallFinder/Resources/ModelManifest.json")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          assert package.is_dir(), package
+          assert (package / "Manifest.json").is_file(), "Core ML package Manifest.json is missing"
+          assert manifest["checkpoint_sha256"] == EXPECTED_SHA256, manifest
+          assert manifest["model_resource"] == "GolfBall.mlpackage", manifest
+          print(json.dumps(manifest, indent=2))
+          '
+
+      - name: Generate project and resolve Swift packages
+        script: |
+          set -euo pipefail
+          xcodegen generate
+          xcodebuild -resolvePackageDependencies \
+            -project GolfBallFinder.xcodeproj \
+            -scheme GolfBallFinder
+
+      - name: Run simulator unit tests with the real model resource
+        script: |
+          set -euo pipefail
+          SIMULATOR_UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          devices = [device for runtime in data["devices"].values() for device in runtime if device.get("isAvailable") and "iPhone" in device.get("name", "")]
+          selected = next((device for device in devices if device["name"] == "iPhone 16 Pro"), devices[0] if devices else None)
+          if selected is None:
+              raise SystemExit("No available iPhone simulator")
+          print(selected["udid"])
+          ')"
+          xcodebuild test \
+            -project GolfBallFinder.xcodeproj \
+            -scheme GolfBallFinder \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath build/model-compile-derived \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build and verify compiled Core ML bundle resource
+        script: |
+          set -euo pipefail
+          xcodebuild build \
+            -project GolfBallFinder.xcodeproj \
+            -scheme GolfBallFinder \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/model-compile-derived \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+          APP_PATH="$(find build/model-compile-derived/Build/Products -type d -name GolfBallFinder.app -print -quit)"
+          test -n "$APP_PATH" || { echo "Built simulator app was not found"; exit 4; }
+          MODEL_PATH="$(find "$APP_PATH" -type d -name GolfBall.mlmodelc -print -quit)"
+          test -n "$MODEL_PATH" || { echo "Compiled GolfBall.mlmodelc is missing from app bundle"; exit 5; }
+          test -f "$APP_PATH/ModelManifest.json" || { echo "ModelManifest.json is missing from app bundle"; exit 6; }
+          echo "Verified bundled model: $MODEL_PATH"
+
+    artifacts:
+      - build/model-compile-derived/Build/Products/Debug-iphonesimulator/GolfBallFinder.app
+      - GolfBallFinder/Resources/ModelManifest.json
+      - /tmp/xcodebuild_logs/*.log
+
   ios-testflight:
     name: iPhone TestFlight build
     max_build_duration: 120

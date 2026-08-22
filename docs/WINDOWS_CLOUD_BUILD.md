@@ -71,7 +71,12 @@ Do not commit the `.p8` key or any Apple credential to Git.
 Run workflow `ios-compile-check` first. It needs no signing, runs the pure Swift unit tests on an available iPhone
 simulator, and proves that the project and package dependencies compile on a real Apple toolchain.
 
-Then run `ios-testflight`.
+Then run `ios-model-compile-check`, which is also unsigned. It creates a pinned Python 3.11 environment, downloads
+the public seed `.pt`, verifies its fixed SHA256, exports `GolfBall.mlpackage`, runs simulator tests/build, and checks
+that Xcode compiled `GolfBall.mlmodelc` plus `ModelManifest.json` into `GolfBallFinder.app`. Run this while Apple
+Developer approval is pending; it isolates model/export/resource errors from later signing errors.
+
+After Apple Developer approval and private integration setup, run `ios-testflight`.
 
 The signed workflow:
 
@@ -139,3 +144,6 @@ You lose Xcode's live attached debugger, Instruments, and direct device console 
 - crash reports through TestFlight/App Store Connect.
 
 These diagnostic features should remain optional and must not interfere with the minimal search UI.
+
+This repository implements them in a separate `Field Diagnostics` sheet. JSONL and opt-in feedback JPEGs stay in
+the app's Documents directory and are available in Files; there is no automatic upload.

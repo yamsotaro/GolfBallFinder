@@ -2,6 +2,7 @@ import AVFoundation
 import CoreImage
 import Foundation
 import SwiftUI
+import UIKit
 
 final class CameraController: NSObject, ObservableObject {
     @Published private(set) var finderState: FinderState = .loading
@@ -9,28 +10,38 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var inferenceMs: Double = 0
     @Published private(set) var currentSource: ScanSource = .fullFrame
     @Published private(set) var zoomFactor: CGFloat = 1.0
+    @Published private(set) var cameraPermissionDenied = false
 
     let session = AVCaptureSession()
+    let diagnostics = FieldDiagnosticsStore()
 
     private let sessionQueue = DispatchQueue(label: "GolfBallFinder.camera.session")
     private let videoQueue = DispatchQueue(label: "GolfBallFinder.camera.frames", qos: .userInteractive)
     private let inferenceQueue = DispatchQueue(label: "GolfBallFinder.inference", qos: .userInitiated)
     private let detector = GolfBallDetector()
+    private let latestFrame = LatestFrameSnapshot()
 
     // Accessed only from inferenceQueue.
     private var scheduler = ScanScheduler()
     private var stabilizer = DetectionStabilizer()
 
-    // Accessed only from videoQueue.
-    private var lastProcessedTime: TimeInterval = 0
-    private var inferenceBusy = false
+    // Accessed only from videoQueue. The gate intentionally has no pending-frame storage.
+    private var frameGate = InferenceFrameGate()
+    private var searchEpoch = 0
+    private var inferenceSuspended = false
 
     // Accessed only from sessionQueue after configuration.
     private var captureDevice: AVCaptureDevice?
     private var configured = false
 
+    // Accessed on the main queue through SwiftUI and main-queue notification observers.
+    private var wantsSessionRunning = false
+    private var permissionRequestInFlight = false
+    private var notificationTokens: [NSObjectProtocol] = []
+
     override init() {
         super.init()
+        installObservers()
         detector.load { [weak self] result in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -41,32 +52,56 @@ final class CameraController: NSObject, ObservableObject {
                     }
                 case .failure(let error):
                     self.finderState = .error(
-                        "GolfBallモデルを読み込めません。GolfBall.mlpackageをResourcesに追加してください。\n\n\(error.localizedDescription)"
+                        "GolfBallモデルを読み込めません。GolfBall.mlpackageをResourcesへ追加してください。\n\(error.localizedDescription)"
                     )
                 }
             }
         }
     }
 
+    deinit {
+        for token in notificationTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
     func start() {
+        wantsSessionRunning = true
+        guard !permissionRequestInFlight else { return }
+        permissionRequestInFlight = true
         Task { [weak self] in
             guard let self else { return }
             let granted = await self.requestCameraPermission()
             guard granted else {
                 DispatchQueue.main.async {
-                    self.finderState = .error("カメラ権限が必要です。設定 > プライバシーとセキュリティ > カメラで許可してください。")
+                    self.permissionRequestInFlight = false
+                    self.cameraPermissionDenied = true
+                    self.finderState = .error(
+                        "カメラ権限が必要です。設定 > プライバシーとセキュリティ > カメラで許可してください。"
+                    )
+                    self.diagnostics.recordCameraEvent("camera_permission_denied")
                 }
                 return
             }
-            self.configureAndStartSession()
+            DispatchQueue.main.async {
+                self.permissionRequestInFlight = false
+                self.cameraPermissionDenied = false
+                if self.wantsSessionRunning {
+                    self.configureAndStartSession()
+                }
+            }
         }
     }
 
     func stop() {
-        sessionQueue.async { [weak self] in
-            guard let self, self.session.isRunning else { return }
-            self.session.stopRunning()
-        }
+        wantsSessionRunning = false
+        invalidateSearch(publishScanning: false, suspendInference: true)
+        stopSession()
+    }
+
+    func openApplicationSettings() {
+        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+        UIApplication.shared.open(url)
     }
 
     func toggleZoom() {
@@ -79,26 +114,85 @@ final class CameraController: NSObject, ObservableObject {
             guard let self, let device = self.captureDevice else { return }
             do {
                 try device.lockForConfiguration()
-                let value = min(max(requested, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+                let value = min(
+                    max(requested, device.minAvailableVideoZoomFactor),
+                    device.maxAvailableVideoZoomFactor
+                )
                 device.videoZoomFactor = value
                 device.unlockForConfiguration()
-                DispatchQueue.main.async { self.zoomFactor = value }
+                DispatchQueue.main.async {
+                    self.zoomFactor = value
+                    self.diagnostics.recordCameraEvent("zoom_changed_to_\(String(format: "%.2f", value))x")
+                }
             } catch {
                 DispatchQueue.main.async {
                     self.finderState = .error("ズーム変更に失敗しました: \(error.localizedDescription)")
+                    self.diagnostics.recordCameraEvent("zoom_change_failed: \(error.localizedDescription)")
                 }
             }
         }
     }
 
     func resetSearch() {
-        inferenceQueue.async { [weak self] in
+        invalidateSearch(publishScanning: true)
+    }
+
+    private func invalidateSearch(publishScanning: Bool, suspendInference: Bool = false) {
+        videoQueue.async { [weak self] in
             guard let self else { return }
-            self.scheduler = ScanScheduler()
-            self.stabilizer.reset()
-            DispatchQueue.main.async {
-                if self.detector.isLoaded { self.finderState = .scanning }
+            self.searchEpoch += 1
+            if suspendInference { self.inferenceSuspended = true }
+            self.inferenceQueue.async { [weak self] in
+                guard let self else { return }
+                self.scheduler = ScanScheduler()
+                self.stabilizer.reset()
+                if publishScanning {
+                    DispatchQueue.main.async {
+                        if self.detector.isLoaded { self.finderState = .scanning }
+                    }
+                }
             }
+        }
+    }
+
+    func recordFalsePositive(occlusion: OcclusionBucket, note: String) {
+        diagnostics.recordManualEvent(
+            kind: .falsePositive,
+            image: latestFrame.current(),
+            occlusion: occlusion,
+            note: note
+        )
+        resetSearch()
+    }
+
+    func recordTruePositive(occlusion: OcclusionBucket, note: String) {
+        diagnostics.recordManualEvent(
+            kind: .truePositive,
+            image: latestFrame.current(),
+            occlusion: occlusion,
+            note: note
+        )
+        resetSearch()
+    }
+
+    func recordMiss(occlusion: OcclusionBucket, note: String) {
+        diagnostics.recordManualEvent(
+            kind: .miss,
+            image: latestFrame.current(),
+            occlusion: occlusion,
+            note: note
+        )
+    }
+
+    func beginFieldScene(id: String, type: FieldSceneType, occlusion: OcclusionBucket, note: String) {
+        if diagnostics.beginScene(id: id, type: type, occlusion: occlusion, note: note) {
+            resetSearch()
+        }
+    }
+
+    func endFieldScene(note: String) {
+        if diagnostics.endScene(note: note) {
+            resetSearch()
         }
     }
 
@@ -123,12 +217,28 @@ final class CameraController: NSObject, ObservableObject {
                 } catch {
                     DispatchQueue.main.async {
                         self.finderState = .error("カメラ初期化に失敗しました: \(error.localizedDescription)")
+                        self.diagnostics.recordCameraEvent("camera_configuration_failed: \(error.localizedDescription)")
                     }
                     return
                 }
             }
-            guard !self.session.isRunning else { return }
-            self.session.startRunning()
+            if !self.session.isRunning {
+                self.session.startRunning()
+            }
+            self.videoQueue.async { [weak self] in
+                self?.inferenceSuspended = false
+            }
+            DispatchQueue.main.async {
+                self.diagnostics.recordCameraEvent("camera_session_started")
+                if self.detector.isLoaded { self.finderState = .scanning }
+            }
+        }
+    }
+
+    private func stopSession() {
+        sessionQueue.async { [weak self] in
+            guard let self, self.session.isRunning else { return }
+            self.session.stopRunning()
         }
     }
 
@@ -155,20 +265,111 @@ final class CameraController: NSObject, ObservableObject {
         guard session.canAddOutput(output) else { throw CameraError.cannotAddOutput }
         session.addOutput(output)
 
-        if let connection = output.connection(with: .video), connection.isVideoOrientationSupported {
-            connection.videoOrientation = .portrait
+        if let connection = output.connection(with: .video) {
+            configurePortraitVideoConnection(connection)
+        }
+    }
+
+    private func installObservers() {
+        let center = NotificationCenter.default
+        notificationTokens.append(center.addObserver(
+            forName: AVCaptureSession.wasInterruptedNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] notification in
+            self?.sessionWasInterrupted(notification)
+        })
+        notificationTokens.append(center.addObserver(
+            forName: AVCaptureSession.interruptionEndedNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] _ in
+            self?.sessionInterruptionEnded()
+        })
+        notificationTokens.append(center.addObserver(
+            forName: AVCaptureSession.runtimeErrorNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] notification in
+            self?.sessionRuntimeError(notification)
+        })
+        notificationTokens.append(center.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applicationDidEnterBackground()
+        })
+        notificationTokens.append(center.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.applicationWillEnterForeground()
+        })
+        notificationTokens.append(center.addObserver(
+            forName: ProcessInfo.thermalStateDidChangeNotification,
+            object: ProcessInfo.processInfo,
+            queue: .main
+        ) { [weak self] _ in
+            let state = ProcessInfo.processInfo.thermalState
+            self?.diagnostics.recordCameraEvent("thermal_state_changed_to_\(state.diagnosticName)", thermal: state)
+        })
+    }
+
+    private func applicationDidEnterBackground() {
+        guard wantsSessionRunning else { return }
+        stopSession()
+        invalidateSearch(publishScanning: false, suspendInference: true)
+        finderState = .paused("バックグラウンドのためカメラを停止中")
+        diagnostics.recordCameraEvent("application_entered_background")
+    }
+
+    private func applicationWillEnterForeground() {
+        guard wantsSessionRunning else { return }
+        diagnostics.recordCameraEvent("application_entered_foreground")
+        start()
+    }
+
+    private func sessionWasInterrupted(_ notification: Notification) {
+        let reasonValue = (notification.userInfo?[AVCaptureSessionInterruptionReasonKey] as? NSNumber)?.intValue
+        let message = reasonValue.map { "カメラが一時停止しました（reason=\($0)）" } ?? "カメラが一時停止しました"
+        finderState = .paused(message)
+        invalidateSearch(publishScanning: false, suspendInference: true)
+        diagnostics.recordCameraEvent("camera_interrupted_reason_\(reasonValue.map(String.init) ?? "unknown")")
+    }
+
+    private func sessionInterruptionEnded() {
+        diagnostics.recordCameraEvent("camera_interruption_ended")
+        guard wantsSessionRunning else { return }
+        if detector.isLoaded { finderState = .scanning }
+        configureAndStartSession()
+    }
+
+    private func sessionRuntimeError(_ notification: Notification) {
+        let error = notification.userInfo?[AVCaptureSessionErrorKey] as? NSError
+        diagnostics.recordCameraEvent("camera_runtime_error_\(error?.code ?? -1): \(error?.localizedDescription ?? "unknown")")
+        if error?.code == AVError.Code.mediaServicesWereReset.rawValue, wantsSessionRunning {
+            invalidateSearch(publishScanning: false, suspendInference: true)
+            configureAndStartSession()
+        } else {
+            invalidateSearch(publishScanning: false, suspendInference: true)
+            finderState = .error("カメラ実行エラー: \(error?.localizedDescription ?? "不明なエラー")")
         }
     }
 
     /// Called only on videoQueue by AVCaptureVideoDataOutput.
     private func scheduleInference(pixelBuffer: CVPixelBuffer, timestamp: TimeInterval) {
-        let minInterval = 1.0 / AppConfig.processedFPS
-        guard timestamp - lastProcessedTime >= minInterval else { return }
-        guard !inferenceBusy, detector.isLoaded else { return }
-        lastProcessedTime = timestamp
-        inferenceBusy = true
+        let thermal = ProcessInfo.processInfo.thermalState
+        let policy = ThermalInferencePolicy.current(for: thermal)
+        guard !inferenceSuspended else { return }
+        guard frameGate.admit(
+            timestamp: timestamp,
+            targetFPS: policy.processedFPS,
+            detectorReady: detector.isLoaded
+        ) else { return }
 
-        // CIImage retains the CVPixelBuffer backing store; no CPU base-address lock is required.
+        let epoch = searchEpoch
         let image = CIImage(cvPixelBuffer: pixelBuffer)
         let imageSize = image.extent.size
 
@@ -187,7 +388,6 @@ final class CameraController: NSObject, ObservableObject {
                 timestamp: timestamp
             )
 
-            // Do not spend the ROI budget on detections too weak to enter temporal confirmation.
             let best = prediction.observations.first {
                 $0.confidence >= AppConfig.candidateMinConfidence
             }
@@ -203,18 +403,30 @@ final class CameraController: NSObject, ObservableObject {
 
             let stabilized = self.stabilizer.update(candidates: prediction.observations)
 
-            DispatchQueue.main.async {
-                self.sourceImageSize = imageSize
-                self.inferenceMs = prediction.inferenceMs
-                self.currentSource = region.source
-                self.finderState = stabilized.state
-                if stabilized.shouldTriggerFeedback {
-                    FeedbackManager.shared.ballFound()
-                }
-            }
-
             self.videoQueue.async { [weak self] in
-                self?.inferenceBusy = false
+                guard let self else { return }
+                self.frameGate.complete()
+                let statistics = self.frameGate.statistics
+                guard epoch == self.searchEpoch else { return }
+
+                DispatchQueue.main.async {
+                    self.sourceImageSize = imageSize
+                    self.inferenceMs = prediction.inferenceMs
+                    self.currentSource = region.source
+                    self.finderState = stabilized.state
+                    self.diagnostics.recordInference(
+                        latencyMs: prediction.inferenceMs,
+                        source: region.source,
+                        state: stabilized.state,
+                        thermal: thermal,
+                        targetFPS: policy.processedFPS,
+                        zoom: self.zoomFactor,
+                        statistics: statistics
+                    )
+                    if stabilized.shouldTriggerFeedback {
+                        FeedbackManager.shared.ballFound()
+                    }
+                }
             }
         }
     }
@@ -227,8 +439,15 @@ extension CameraController: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        latestFrame.update(pixelBuffer: pixelBuffer)
         let timestamp = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
         scheduleInference(pixelBuffer: pixelBuffer, timestamp: timestamp)
+    }
+}
+
+func configurePortraitVideoConnection(_ connection: AVCaptureConnection) {
+    if connection.isVideoRotationAngleSupported(90) {
+        connection.videoRotationAngle = 90
     }
 }
 
@@ -240,8 +459,8 @@ enum CameraError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noBackCamera: return "背面カメラが見つかりません"
-        case .cannotAddInput: return "カメラ入力をセッションに追加できません"
-        case .cannotAddOutput: return "映像出力をセッションに追加できません"
+        case .cannotAddInput: return "カメラ入力をセッションへ追加できません"
+        case .cannotAddOutput: return "映像出力をセッションへ追加できません"
         }
     }
 }

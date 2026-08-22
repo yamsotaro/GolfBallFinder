@@ -25,6 +25,8 @@ The utility metric is not generic COCO mAP. The primary field metric is: **withi
 - The app can switch between 1x and 2x camera zoom.
 - Unit tests cover crop-coordinate mapping, adaptive scan scheduling, and temporal confirmation.
 - Debug observation includes model inference milliseconds and active scan source.
+- Field Diagnostics remains separate from the normal finder UI and writes local-only JSONL/evidence for verified
+  finds, false positives, and misses.
 
 ### Alpha field targets (targets, not guaranteed facts)
 
@@ -291,6 +293,9 @@ The starter implementation already includes:
 - 1x/2x zoom;
 - reset search;
 - unit tests for critical pure logic;
+- latest-frame-only admission with busy/cadence drop counters and thermal-adaptive target FPS;
+- camera interruption, permission denial/recovery, foreground/background, portrait rotation, and 1x/2x handling;
+- optional Field Diagnostics with bounded logging and opt-in local JPEG evidence;
 - Python train/evaluate/export scripts;
 - SHA256-pinned public seed model fetch;
 - XcodeGen project generation.
@@ -366,3 +371,11 @@ The first useful build is complete when:
 9. Unit tests pass.
 10. A first field-test log records failures in at least 20 positive scenes and 10 negative-only scan scenes.
 11. Those failures become the next hard-negative/positive training batch.
+
+## 21. Field diagnostics data boundary
+
+The main UI remains camera/status/zoom/reset plus one diagnostics entry button. Diagnostics samples are persisted at
+no more than 2 Hz even though live values update after every completed inference. Manual feedback stores exactly the
+latest retained frame; it never creates a pending camera/inference queue. Files remain in the app's Documents
+directory and are never uploaded. Each record carries session/scene, app build, model SHA when bundled, timestamp,
+thermal state, confidence, scan mode, normalized bbox, latency/FPS, confirmation timing, zoom, and frame-drop counts.

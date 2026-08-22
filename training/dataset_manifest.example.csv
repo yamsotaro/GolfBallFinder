@@ -1,3 +1,4 @@
-session_id,split,source_type,source_uri_or_note,license,device,lens,lighting,rough_depth,ball_visibility_pct,positive_frames,negative_frames,annotation_tool,notes
-session_001,train,self_capture,local/private,private,iPhone 16 Pro,1x,sun,deep,50,0,0,,Example only
-public_001,train,public_dataset,https://example.invalid/dataset,CC-BY-4.0,n/a,n/a,mixed,mixed,mixed,0,0,,Replace with exact dataset/version/attribution
+session_id,split,source_dir,content_type,source_type,source_uri_or_note,license,device,lens,lighting,rough_depth,ball_visibility_pct,positive_frames,negative_frames,hard_negative_type,annotation_tool,notes
+course_a_rough_001,train,../data/sessions/course_a_rough_001,mixed,self_capture,local/private,private,iPhone 16 Pro,1x,sun,deep,50,0,0,,,Example only
+course_b_negative_001,val,../data/sessions/course_b_negative_001,hard_negative,self_capture,local/private,private,iPhone 16 Pro,1x,shade,medium,0,0,0,mushroom,,Example only
+course_c_rough_001,test,../data/sessions/course_c_rough_001,positive,self_capture,local/private,private,iPhone 16 Pro,2x,overcast,deep,25,0,0,,,Example only
