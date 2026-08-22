@@ -39,6 +39,7 @@ branch protection, and the ability to start a connected Codemagic build could no
 | High | No field diagnostics or recoverable failure evidence existed. | Added bounded JSONL metrics, scene timing, local-only latest-frame evidence, and separate Field Diagnostics UI for verified finds, false positives, and misses. |
 | High | Camera lifecycle and thermal load were incomplete. | Added interruption/runtime/background/foreground observers, permission recovery, portrait rotation, latest-frame-only admission/drop counters, and 20/15/8/4 FPS thermal policy. |
 | High | Training split and comparison rules were prose-only. | Added manifest-driven preparation, dataset/label/leakage/duplicate/Hard Negative validation, provenance hashes, and field-KPI model comparison. |
+| Experimental | Broad-search tiles had only fixed round-robin order, so low-cost vegetation/white-object cues could not be measured without altering detector input. | Added default-off `ColorAssistEngine`, low-resolution Core Image scoring, starvation-free tile-cycle ordering, diagnostics/human rank annotation, and a matching Python reference. Raw RGB YOLO remains unchanged. |
 
 ## Validation evidence
 
@@ -46,7 +47,7 @@ Passed on Windows after the changes:
 
 - `scripts/bootstrap_windows.ps1`: virtual environment, pinned dependency install, seed download, SHA256 verification,
   and Python tests;
-- Python `unittest`: 29/29 passing, including session split/Hard Negative validation, field-log KPI summary,
+- Python `unittest`: 33/33 passing, including session split/Hard Negative validation, field-log KPI summary,
   comparable model ranking, XcodeGen model-source configuration, and generated-pbxproj phase validation;
 - Python `compileall` plus `--help` smoke checks for all CLIs;
 - PowerShell parser for `bootstrap_windows.ps1` and Bash syntax check for `bootstrap_mac.sh`;
@@ -56,7 +57,7 @@ Passed on Windows after the changes:
   `45e8f8bd8975dc7f437919a11c3f6ee1fe7c8ae40b0f49910d0677d1c0326791`;
 - synthetic OpenCV video extraction: 10 decoded frames at 10 FPS and 0.2-second interval produced five frames plus
   `session.json`;
-- Swift tree-sitter syntax parse: all 20 app/test `.swift` files passed;
+- Swift tree-sitter syntax parse: all 22 app/test `.swift` files passed;
 - macOS arm64 / CPython 3.11 pip dry-run: the pinned Core ML export dependency set resolved.
 
 The tree-sitter result is syntax-only. It does not claim Swift type-checking, iOS SDK compatibility, or linking.
@@ -72,7 +73,8 @@ The tree-sitter result is syntax-only. It does not claim Swift type-checking, iO
 3. **Signing/App Store Connect:** supply the private Codemagic integration and `BUNDLE_ID` externally. No key,
    certificate, provisioning profile, team ID, or `.p8` belongs in Git.
 4. **Physical iPhone gate:** camera permission, preview orientation/aspect fill, overlay alignment, 1x/2x behavior,
-   offline model load, feedback transition, latency, thermal behavior, and battery remain device-only.
+   offline model load, feedback transition, Color Assist tile benefit/cost, latency, thermal behavior, and battery
+   remain device-only.
 5. **Accuracy gate:** no representative field dataset or measured field results are present. The seed model is only
    a pipeline bootstrap. Hard negatives, held-out scene splits, real iPhone footage, and the field log must drive the
    next model iteration. No mAP or discovery target is claimed as achieved.

@@ -32,6 +32,15 @@ enum AppConfig {
     static let minimumROISide: CGFloat = 0.34
     static let roiExpansion: CGFloat = 5.0
 
+    /// Experimental Color Assist never changes detector pixels. It only reorders broad-search
+    /// tiles, is off by default, and pauses before serious thermal pressure.
+    static let colorAssistDefaultEnabled = false
+    static let colorAssistAnalysisLongSide: CGFloat = 320
+    static let colorAssistAnalysisShortSide: CGFloat = 180
+    static let colorAssistPreviewInterval: TimeInterval = 0.5
+    static let colorAssistMeanWeight = 0.35
+    static let colorAssistPeakWeight = 0.65
+
     /// Search tiles overlap on purpose so a ball near an edge is not repeatedly split by crops.
     static let searchTiles: [CGRect] = [
         CGRect(x: 0.00, y: 0.00, width: 0.62, height: 0.62),

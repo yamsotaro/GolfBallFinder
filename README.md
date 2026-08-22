@@ -74,7 +74,10 @@ Then open the project, choose your Signing Team, select the connected iPhone, an
 ```text
 AVCaptureSession 720p portrait
         |
-        v
+        +--> ColorAssistEngine (experimental, 180x320 Core Image)
+        |       `--> tile scores/order only
+        |
+        v  Raw RGB remains unchanged
 ScanScheduler
   |-- full frame
   |-- overlapping tile (alternating)
@@ -94,6 +97,9 @@ DetectionStabilizer (3 hits / 5 processed frames)
 ```
 
 Only one model invocation is scheduled per processed frame. While searching, full-frame and sliced crops alternate. A candidate switches the next frames to an enlarged ROI so the same suspected ball is repeatedly inspected at higher effective pixel density.
+Color Assist is disabled by default and can be enabled only from Field Diagnostics. It may reorder broad-search
+tiles, but never supplies a filtered image to YOLO. ROI lock, latest-frame-only admission, temporal confirmation,
+and the Raw RGB detector baseline remain authoritative.
 
 ## Build without the bootstrap script
 
@@ -175,6 +181,19 @@ python training/validate_dataset.py \
 `training/summarize_field_logs.py` converts completed positive/negative JSONL scenes into field-result JSON.
 `training/compare_models.py` compares those results only when protocol, frozen manifest hash, and iPhone device
 match. Its ranking starts with 10-second discovery, then false confirmed alerts/min, then latency.
+
+For an offline Color Assist tile-order hypothesis test, copy `training/color_assist_manifest.example.csv`, point it
+at held-out field frames, and run:
+
+```bash
+python training/color_assist.py \
+  --manifest training/color_assist_manifest.csv \
+  --mode white_ball_saliency \
+  --output color_assist_comparison.json
+```
+
+This compares round-robin OFF rank with Color Assist ON rank. It does not run YOLO and cannot establish discovery
+or false-alert performance; those require the matched iPhone A/B protocol in `FIELD_TEST_PLAN.md`.
 
 Use `docs/FIELD_TEST_LOG_TEMPLATE.csv` for the first repeatable device/field pass. Do not fill target values into
 the result columns until they have actually been measured on the iPhone 16 Pro.

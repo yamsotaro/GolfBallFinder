@@ -1,0 +1,3 @@
+image_path,scene_id,ball_present,ball_x,ball_y,ball_width,ball_height,ball_tile_index,occlusion,split,notes
+replace/positive.jpg,scene-positive-001,true,0.10,0.10,0.03,0.03,,visible_50,test,Replace with a held-out field frame and normalized top-left bbox
+replace/negative.jpg,scene-negative-001,false,,,,,,,test,Hard-negative or empty-grass frame

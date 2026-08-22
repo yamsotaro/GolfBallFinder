@@ -80,6 +80,14 @@ struct ThermalInferencePolicy: Equatable, Sendable {
 }
 
 extension ProcessInfo.ThermalState {
+    var allowsColorAssist: Bool {
+        switch self {
+        case .nominal, .fair: return true
+        case .serious, .critical: return false
+        @unknown default: return false
+        }
+    }
+
     var diagnosticName: String {
         switch self {
         case .nominal: return "nominal"

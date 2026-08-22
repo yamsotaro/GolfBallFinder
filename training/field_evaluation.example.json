@@ -4,11 +4,24 @@
   "evaluation_protocol_id": "field-v1-frozen-scenes",
   "dataset_manifest_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
   "device": "iPhone 16 Pro",
+  "color_assist_configurations": [
+    {
+      "requested": false,
+      "filter_mode": "white_ball_saliency"
+    }
+  ],
   "metrics": {
     "scene_discovery_rate_10s": 0.0,
     "false_confirmed_alerts_per_min": 0.0,
     "detection_latency_ms_p50": 0.0,
     "detection_latency_ms_p90": 0.0,
+    "time_to_first_candidate_ms_p50": 0.0,
+    "time_to_first_candidate_ms_p90": 0.0,
+    "candidate_to_confirmed_ms_p50": 0.0,
+    "ball_containing_tile_rank_p50": null,
+    "ball_containing_tile_top1_rate": null,
+    "color_processing_latency_ms_p50": null,
+    "color_processing_latency_ms_p95": null,
     "occlusion_success_rate": {
       "visible_100": 0.0,
       "visible_75": 0.0,

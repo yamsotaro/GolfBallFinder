@@ -7,11 +7,59 @@ import unittest
 from pathlib import Path
 
 import yaml
+import cv2
+import numpy as np
 
+from training.color_assist import analyze_rgb, evaluate_manifest
 from training.compare_models import ComparisonError, compare_results, load_result
 from training.prepare_dataset import prepare_dataset
 from training.summarize_field_logs import FieldLogError, load_events, summarize_events
 from training.validate_dataset import DatasetValidationError, validate_dataset_config
+
+
+class ColorAssistReferenceTests(unittest.TestCase):
+    def test_white_ball_saliency_prioritizes_annotated_grass_tile(self) -> None:
+        image = np.zeros((180, 320, 3), dtype=np.uint8)
+        image[..., 1] = 150
+        cv2.circle(image, (32, 18), 6, (255, 255, 255), thickness=-1)
+
+        analysis = analyze_rgb(image, "white_ball_saliency")
+
+        self.assertEqual(analysis.maps["raw_rgb"].shape, (180, 320, 3))
+        self.assertEqual(analysis.selected_tile_order[0], 0)
+        self.assertGreater(analysis.tile_scores[0], analysis.tile_scores[3])
+
+    def test_manifest_compares_round_robin_and_saliency_rank(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            image = np.zeros((180, 320, 3), dtype=np.uint8)
+            image[..., 1] = 150
+            cv2.circle(image, (288, 18), 6, (255, 255, 255), thickness=-1)
+            image_path = root / "field.png"
+            cv2.imwrite(str(image_path), cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
+            manifest = root / "manifest.csv"
+            with manifest.open("w", encoding="utf-8", newline="") as file:
+                writer = csv.DictWriter(file, fieldnames=(
+                    "image_path", "scene_id", "ball_present", "ball_x", "ball_y",
+                    "ball_width", "ball_height", "ball_tile_index",
+                ))
+                writer.writeheader()
+                writer.writerow({
+                    "image_path": image_path.name,
+                    "scene_id": "scene-1",
+                    "ball_present": "true",
+                    "ball_x": "0.88",
+                    "ball_y": "0.07",
+                    "ball_width": "0.04",
+                    "ball_height": "0.04",
+                    "ball_tile_index": "1",
+                })
+
+            payload = evaluate_manifest(manifest, "white_ball_saliency")
+
+        self.assertEqual(payload["off"]["mean_rank"], 2)
+        self.assertEqual(payload["on"]["mean_rank"], 1)
+        self.assertEqual(payload["purpose"], "tile_order_hypothesis_only_raw_yolo_unchanged")
 
 
 class DatasetFixture:
@@ -219,7 +267,9 @@ class FieldLogSummaryTests(unittest.TestCase):
                     "positive-1",
                     "positive",
                     sceneStartToConfirmedMs=8000,
+                    sceneStartToFirstCandidateMs=7750,
                     candidateToConfirmedMs=250,
+                    ballContainingTileRank=1,
                     detectionState="found",
                 ),
                 self._event("3", "2026-08-22T00:00:10Z", "scene_end", "positive-1", "positive"),
@@ -237,15 +287,27 @@ class FieldLogSummaryTests(unittest.TestCase):
                     "7",
                     "2026-08-22T00:00:01Z",
                     "inference_sample",
+                    "positive-1",
+                    "positive",
                     inferenceLatencyMs=20,
                     effectiveInferenceFPS=18,
+                    colorAssistRequested=True,
+                    colorAssistEnabled=True,
+                    colorAssistFilterMode="white_ball_saliency",
+                    colorProcessingLatencyMs=2,
                 ),
                 self._event(
                     "8",
                     "2026-08-22T00:00:01.5Z",
                     "inference_sample",
+                    "positive-1",
+                    "positive",
                     inferenceLatencyMs=30,
                     effectiveInferenceFPS=17,
+                    colorAssistRequested=True,
+                    colorAssistEnabled=True,
+                    colorAssistFilterMode="white_ball_saliency",
+                    colorProcessingLatencyMs=4,
                 ),
             ]
             path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
@@ -259,8 +321,42 @@ class FieldLogSummaryTests(unittest.TestCase):
             self.assertEqual(payload["metrics"]["scene_discovery_rate_10s"], 1)
             self.assertEqual(payload["metrics"]["false_confirmed_alerts_per_min"], 1)
             self.assertEqual(payload["metrics"]["detection_latency_ms_p50"], 8000)
+            self.assertEqual(payload["metrics"]["time_to_first_candidate_ms_p50"], 7750)
             self.assertEqual(payload["metrics"]["candidate_to_confirmed_ms_p50"], 250)
+            self.assertEqual(payload["metrics"]["ball_containing_tile_rank_p50"], 1)
+            self.assertEqual(payload["metrics"]["color_processing_latency_ms_p50"], 2)
             self.assertEqual(payload["metrics"]["occlusion_success_rate"]["visible_50"], 1)
+            self.assertEqual(
+                payload["color_assist_configurations"],
+                [{"requested": True, "filter_mode": "white_ball_saliency"}],
+            )
+
+    def test_rejects_mixed_color_assist_arms(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "events.jsonl"
+            events = [
+                self._event("1", "2026-08-22T00:00:00Z", "scene_start", "positive-1", "positive"),
+                self._event(
+                    "2", "2026-08-22T00:00:01Z", "inference_sample", "positive-1", "positive",
+                    colorAssistRequested=False, colorAssistFilterMode="white_ball_saliency",
+                ),
+                self._event(
+                    "3", "2026-08-22T00:00:02Z", "inference_sample", "positive-1", "positive",
+                    colorAssistRequested=True, colorAssistFilterMode="white_ball_saliency",
+                ),
+                self._event("4", "2026-08-22T00:00:10Z", "scene_end", "positive-1", "positive"),
+                self._event("5", "2026-08-22T00:01:00Z", "scene_start", "negative-1", "negative"),
+                self._event("6", "2026-08-22T00:02:00Z", "scene_end", "negative-1", "negative"),
+            ]
+            path.write_text("\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(FieldLogError, "summarize each A/B arm separately"):
+                summarize_events(
+                    load_events([path]),
+                    model_id="model-a",
+                    protocol_id="field-v1",
+                    dataset_manifest_sha256="a" * 64,
+                    device="iPhone 16 Pro",
+                )
 
     def test_rejects_incomplete_scenes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

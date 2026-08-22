@@ -103,11 +103,28 @@ def summarize_events(
         raise FieldLogError("No completed negative scenes")
 
     successful_latencies: list[float] = []
+    first_candidate_latencies: list[float] = []
     candidate_latencies: list[float] = []
+    ball_tile_ranks: list[float] = []
     success_by_occlusion: dict[str, list[bool]] = defaultdict(list)
     successful_scenes = 0
     for scene in positive_scenes:
         true_events = [event for event in scene["events"] if event["kind"] == "true_positive"]
+        first_candidate_values = [
+            float(event["sceneStartToFirstCandidateMs"])
+            for event in scene["events"]
+            if event.get("sceneStartToFirstCandidateMs") is not None
+        ]
+        if first_candidate_values:
+            first_candidate_latencies.append(min(first_candidate_values))
+        rank_values = [
+            float(event["ballContainingTileRank"])
+            for event in scene["events"]
+            if event["kind"] in {"true_positive", "miss"}
+            and event.get("ballContainingTileRank") is not None
+        ]
+        if rank_values:
+            ball_tile_ranks.append(min(rank_values))
         latency_values = [
             float(event["sceneStartToConfirmedMs"])
             for event in true_events
@@ -150,6 +167,23 @@ def summarize_events(
         for event in inference_samples
         if event.get("effectiveInferenceFPS") is not None
     ]
+    color_processing_latencies = [
+        float(event["colorProcessingLatencyMs"])
+        for event in inference_samples
+        if event.get("colorProcessingLatencyMs") is not None
+    ]
+    color_configurations = {
+        (
+            bool(event.get("colorAssistRequested", False)),
+            str(event.get("colorAssistFilterMode", "white_ball_saliency")),
+        )
+        for event in inference_samples
+        if event.get("sceneID")
+    }
+    if len(color_configurations) > 1:
+        raise FieldLogError(
+            "Completed scenes mix Color Assist requested state/filter mode; summarize each A/B arm separately"
+        )
     thermal_seconds: dict[str, float] = {key: 0.0 for key in ("nominal", "fair", "serious", "critical", "unknown")}
     samples_by_session: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for sample in inference_samples:
@@ -169,7 +203,14 @@ def summarize_events(
         "false_confirmed_alerts_per_min": rejected_confirmed / (negative_seconds / 60),
         "detection_latency_ms_p50": percentile(successful_latencies, 50),
         "detection_latency_ms_p90": percentile(successful_latencies, 90),
+        "time_to_first_candidate_ms_p50": percentile(first_candidate_latencies, 50),
+        "time_to_first_candidate_ms_p90": percentile(first_candidate_latencies, 90),
         "candidate_to_confirmed_ms_p50": percentile(candidate_latencies, 50),
+        "ball_containing_tile_rank_p50": percentile(ball_tile_ranks, 50),
+        "ball_containing_tile_top1_rate": (
+            sum(rank <= 1 for rank in ball_tile_ranks) / len(ball_tile_ranks)
+            if ball_tile_ranks else None
+        ),
         "occlusion_success_rate": {
             bucket: sum(outcomes) / len(outcomes) for bucket, outcomes in sorted(success_by_occlusion.items())
         },
@@ -180,6 +221,8 @@ def summarize_events(
         "inference_latency_ms_p50": percentile(inference_latencies, 50),
         "inference_latency_ms_p95": percentile(inference_latencies, 95),
         "effective_inference_fps_p50": percentile(effective_fps, 50),
+        "color_processing_latency_ms_p50": percentile(color_processing_latencies, 50),
+        "color_processing_latency_ms_p95": percentile(color_processing_latencies, 95),
     }
     return {
         "schema_version": 1,
@@ -188,6 +231,10 @@ def summarize_events(
         "dataset_manifest_sha256": dataset_manifest_sha256,
         "device": device,
         "model_checkpoint_sha256": next(iter(checkpoint_hashes)) if len(checkpoint_hashes) == 1 else None,
+        "color_assist_configurations": [
+            {"requested": requested, "filter_mode": mode}
+            for requested, mode in sorted(color_configurations)
+        ],
         "sample_counts": {
             "positive_scenes": len(positive_scenes),
             "successful_positive_scenes": successful_scenes,

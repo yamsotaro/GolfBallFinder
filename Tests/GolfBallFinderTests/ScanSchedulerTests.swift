@@ -60,6 +60,56 @@ final class ScanSchedulerTests: XCTestCase {
         XCTAssertEqual(scheduler.nextRegion(), .tile(AppConfig.searchTiles[1]))
     }
 
+    func testColorAssistOrdersTilesByScoreWithoutStarvation() {
+        var scheduler = ScanScheduler()
+        let order = scheduler.updateTilePriorities(
+            scores: [0.1, 0.7, 0.2, 0.9, 0.4],
+            enabled: true
+        )
+        XCTAssertEqual(order, [3, 1, 4, 2, 0])
+
+        var visited: [CGRect] = []
+        for _ in AppConfig.searchTiles.indices {
+            _ = scheduler.nextRegion()
+            guard case .tile(let tile) = scheduler.nextRegion() else {
+                return XCTFail("expected prioritized tile")
+            }
+            visited.append(tile)
+        }
+        XCTAssertEqual(visited, order.map { AppConfig.searchTiles[$0] })
+        XCTAssertEqual(Set(visited.map(\.debugDescription)).count, AppConfig.searchTiles.count)
+    }
+
+    func testColorAssistOffPreservesBaselineRoundRobinOrder() {
+        var scheduler = ScanScheduler()
+        _ = scheduler.updateTilePriorities(scores: [0, 0, 0, 1, 0], enabled: false)
+        XCTAssertEqual(scheduler.nextRegion(), .full)
+        XCTAssertEqual(scheduler.nextRegion(), .tile(AppConfig.searchTiles[0]))
+        XCTAssertEqual(scheduler.nextRegion(), .full)
+        XCTAssertEqual(scheduler.nextRegion(), .tile(AppConfig.searchTiles[1]))
+    }
+
+    func testPriorityUpdateWaitsForNextCycleAndKeepsEveryCurrentTile() {
+        var scheduler = ScanScheduler()
+        _ = scheduler.updateTilePriorities(scores: [0.9, 0.8, 0.7, 0.6, 0.5], enabled: true)
+        _ = scheduler.nextRegion()
+        XCTAssertEqual(scheduler.nextRegion(), .tile(AppConfig.searchTiles[0]))
+
+        _ = scheduler.updateTilePriorities(scores: [0.1, 0.2, 0.3, 0.4, 0.9], enabled: true)
+        var restOfFirstCycle: [CGRect] = []
+        for _ in 1..<AppConfig.searchTiles.count {
+            _ = scheduler.nextRegion()
+            guard case .tile(let tile) = scheduler.nextRegion() else {
+                return XCTFail("expected tile")
+            }
+            restOfFirstCycle.append(tile)
+        }
+        XCTAssertEqual(restOfFirstCycle, Array(AppConfig.searchTiles[1...]))
+
+        _ = scheduler.nextRegion()
+        XCTAssertEqual(scheduler.nextRegion(), .tile(AppConfig.searchTiles[4]))
+    }
+
     func testROINearEveryScreenCornerIsClippedToUnitFrame() {
         let edgeOrigins: [CGPoint] = [
             CGPoint(x: -0.03, y: -0.03),

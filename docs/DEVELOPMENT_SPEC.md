@@ -113,6 +113,19 @@ processed frame 3: tile 1
 
 This keeps one inference invocation per processed frame rather than 5–10 simultaneous inferences.
 
+### Experimental Color Assist tile priority
+
+`ColorAssistEngine` optionally downsizes the raw camera frame to approximately 320x180 (180x320 in portrait) and
+uses Core Image/Metal to produce raw luminance, green-suppressed Golf Contrast, Excess Green vegetation, and a
+white-ball saliency map. White-ball saliency combines luminance, low chroma, and low vegetation score. Per-tile
+priority combines area mean with a peak term so a small bright region is not erased by surrounding grass.
+
+This is a scheduler heuristic, not a detector. The experimental flag is off by default. When off, tile order is the
+existing round-robin order. When on, it changes only the order of the next complete five-tile cycle; every tile is
+still visited once per cycle. It does not run during ROI lock or serious/critical thermal state. `GolfBallDetector`
+always receives the original Raw RGB frame/crop, and YOLO plus temporal confirmation remains the final authority for
+mushrooms, flowers, stones, reflections, and other Hard Negatives.
+
 ### ROI lock
 
 On any credible candidate:
@@ -262,6 +275,7 @@ GolfBallFinderApp
        -> DetectionOverlay
        -> CameraController
             -> AVCaptureSession / VideoDataOutput
+            -> ColorAssistEngine (optional low-resolution tile priority)
             -> ScanScheduler
             -> GolfBallDetector
                  -> UltralyticsYOLO / Core ML
@@ -272,6 +286,7 @@ GolfBallFinderApp
 Key boundaries:
 
 - `GolfBallDetector` owns all Ultralytics-specific code. This is the future replacement seam.
+- `ColorAssistEngine` owns only visual transforms/scores and cannot provide detector pixels.
 - `ScanScheduler` knows no ML framework.
 - `DetectionStabilizer` is deterministic/pure enough to unit test.
 - UI consumes only `FinderState` and normalized coordinates.
@@ -285,6 +300,7 @@ The starter implementation already includes:
 - model loading from `GolfBall.mlpackage`;
 - low detector thresholds;
 - full-frame/overlapping-tile alternation;
+- optional low-resolution Color Assist ordering with an exact round-robin OFF baseline;
 - ROI candidate lock;
 - crop-to-full coordinate mapping;
 - temporal confirmation;
@@ -296,6 +312,7 @@ The starter implementation already includes:
 - latest-frame-only admission with busy/cadence drop counters and thermal-adaptive target FPS;
 - camera interruption, permission denial/recovery, foreground/background, portrait rotation, and 1x/2x handling;
 - optional Field Diagnostics with bounded logging and opt-in local JPEG evidence;
+- diagnostics-only Raw/Golf Contrast/saliency previews and Color Assist timing/order/annotation fields;
 - Python train/evaluate/export scripts;
 - SHA256-pinned public seed model fetch;
 - XcodeGen project generation.
@@ -379,3 +396,5 @@ no more than 2 Hz even though live values update after every completed inference
 latest retained frame; it never creates a pending camera/inference queue. Files remain in the app's Documents
 directory and are never uploaded. Each record carries session/scene, app build, model SHA when bundled, timestamp,
 thermal state, confidence, scan mode, normalized bbox, latency/FPS, confirmation timing, zoom, and frame-drop counts.
+When Color Assist is exercised, records additionally carry requested/effective state, filter mode, processing
+latency, per-tile scores, selected order, optional human ball-containing tile/rank, and scene-to-first-candidate time.

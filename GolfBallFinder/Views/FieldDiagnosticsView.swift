@@ -1,3 +1,4 @@
+import CoreGraphics
 import SwiftUI
 
 struct FieldDiagnosticsView: View {
@@ -24,6 +25,7 @@ struct FieldDiagnosticsView: View {
                     metric("Thermal state", diagnostics.thermalState)
                     metric("Detection confidence", confidenceText)
                     metric("Scan mode", diagnostics.scanMode)
+                    metric("Scene start → first candidate", firstCandidateText)
                     metric("Candidate → confirmed", confirmationText)
                     metric("Scene start → confirmed", sceneConfirmationText)
                     metric("BBox (normalized)", boundingBoxText)
@@ -35,6 +37,58 @@ struct FieldDiagnosticsView: View {
                         "Dropped busy / cadence",
                         "\(diagnostics.frameStatistics.droppedBusy) / \(diagnostics.frameStatistics.droppedCadence)"
                     )
+                }
+
+                Section("Color Assist (Experimental)") {
+                    Toggle(
+                        "Prioritize tiles with Color Assist",
+                        isOn: Binding(
+                            get: { camera.colorAssistEnabled },
+                            set: { camera.setColorAssistEnabled($0) }
+                        )
+                    )
+
+                    Picker(
+                        "Priority filter",
+                        selection: Binding(
+                            get: { camera.colorAssistMode },
+                            set: { camera.setColorAssistMode($0) }
+                        )
+                    ) {
+                        ForEach(ColorAssistMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+
+                    metric("Effective", diagnostics.colorAssistEnabled ? "ON" : "OFF")
+                    metric("Color processing", colorProcessingText)
+                    metric("Tile scores [0...4]", tileScoresText)
+                    metric("Selected order", tileOrderText)
+
+                    Picker("Ball-containing tile", selection: ballTileSelection) {
+                        Text("Not annotated").tag(-1)
+                        ForEach(AppConfig.searchTiles.indices, id: \.self) { index in
+                            Text("Tile \(index)").tag(index)
+                        }
+                    }
+                    Text("Tile 0/1/2/3 = top-left/top-right/bottom-left/bottom-right; Tile 4 = center.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    metric("Annotated tile rank", ballTileRankText)
+
+                    if let preview = camera.colorAssistPreview {
+                        previewImage("Raw", image: preview.raw)
+                        previewImage("Golf Contrast", image: preview.golfContrast)
+                        previewImage("White-ball saliency", image: preview.saliency)
+                    } else {
+                        Text("Waiting for a low-resolution preview. Preview work pauses at serious/critical thermal state.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Text("Experimental ordering only. YOLO always receives the original Raw RGB frame/crop.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
 
                 Section("Field feedback") {
@@ -137,6 +191,8 @@ struct FieldDiagnosticsView: View {
                     Button("閉じる") { dismiss() }
                 }
             }
+            .onAppear { camera.setColorAssistPreviewRequested(true) }
+            .onDisappear { camera.setColorAssistPreviewRequested(false) }
         }
     }
 
@@ -164,6 +220,45 @@ struct FieldDiagnosticsView: View {
 
     private var sceneConfirmationText: String {
         diagnostics.sceneStartToConfirmedMs.map { String(format: "%.0f ms", $0) } ?? "—"
+    }
+
+    private var firstCandidateText: String {
+        diagnostics.sceneStartToFirstCandidateMs.map { String(format: "%.0f ms", $0) } ?? "—"
+    }
+
+    private var colorProcessingText: String {
+        diagnostics.colorProcessingLatencyMs.map { String(format: "%.2f ms", $0) } ?? "—"
+    }
+
+    private var tileScoresText: String {
+        guard let scores = diagnostics.tileSaliencyScores else { return "—" }
+        return scores.map { String(format: "%.3f", $0) }.joined(separator: ", ")
+    }
+
+    private var tileOrderText: String {
+        diagnostics.selectedTileOrder.map(String.init).joined(separator: " → ")
+    }
+
+    private var ballTileRankText: String {
+        diagnostics.ballContainingTileRank.map { "\($0) / \(AppConfig.searchTiles.count)" } ?? "—"
+    }
+
+    private var ballTileSelection: Binding<Int> {
+        Binding(
+            get: { diagnostics.ballContainingTileIndex ?? -1 },
+            set: { camera.annotateBallContainingTile($0 >= 0 ? $0 : nil) }
+        )
+    }
+
+    private func previewImage(_ title: String, image: CGImage) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption.weight(.semibold))
+            Image(decorative: image, scale: 1, orientation: .up)
+                .resizable()
+                .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .accessibilityLabel(title)
+        }
     }
 
     private var boundingBoxText: String {

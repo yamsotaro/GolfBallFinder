@@ -29,11 +29,19 @@ enum ScanRegion: Equatable, Sendable {
 /// 2. As soon as a candidate appears, spend the next frames repeatedly on a compact ROI.
 /// 3. Return to broad search if the candidate is lost.
 struct ScanScheduler: Sendable {
-    private var tileIndex = 0
+    private var tileVisitCount = 0
+    private var activeTileOrder: [Int]?
+    private var pendingTileOrder: [Int]?
     private var useFullNext = true
     private var lockedROI: CGRect?
     private var remainingLockFrames = 0
     private var consecutiveLockMisses = 0
+
+    var isROILocked: Bool { lockedROI != nil }
+
+    var currentTileOrder: [Int] {
+        activeTileOrder ?? Array(AppConfig.searchTiles.indices)
+    }
 
     mutating func nextRegion() -> ScanRegion {
         if let roi = lockedROI, remainingLockFrames > 0 {
@@ -53,9 +61,45 @@ struct ScanScheduler: Sendable {
         useFullNext = true
         let tiles = AppConfig.searchTiles
         guard !tiles.isEmpty else { return .full }
-        let tile = tiles[tileIndex % tiles.count]
-        tileIndex = (tileIndex + 1) % tiles.count
-        return .tile(tile)
+        let position = tileVisitCount % tiles.count
+        if position == 0, let pendingTileOrder {
+            activeTileOrder = pendingTileOrder
+            self.pendingTileOrder = nil
+        }
+        let baselineOrder = Array(tiles.indices)
+        let order = activeTileOrder ?? baselineOrder
+        let selectedIndex = order[position]
+        tileVisitCount += 1
+        return .tile(tiles[selectedIndex])
+    }
+
+    /// Updates only the order of the next broad-search tile cycle. A cycle always visits every
+    /// tile exactly once, so changing saliency every frame cannot starve a low-scoring tile.
+    /// Passing `enabled == false` restores the original round-robin sequence at the same visit
+    /// count; this makes the default/off behavior identical to the pre-experiment scheduler.
+    @discardableResult
+    mutating func updateTilePriorities(scores: [Double]?, enabled: Bool) -> [Int] {
+        let baseline = Array(AppConfig.searchTiles.indices)
+        guard enabled,
+              let scores,
+              scores.count == baseline.count,
+              scores.allSatisfy(\.isFinite) else {
+            activeTileOrder = nil
+            pendingTileOrder = nil
+            return baseline
+        }
+
+        let ordered = baseline.sorted { left, right in
+            if scores[left] == scores[right] { return left < right }
+            return scores[left] > scores[right]
+        }
+        if baseline.isEmpty || tileVisitCount % baseline.count == 0 {
+            activeTileOrder = ordered
+            pendingTileOrder = nil
+        } else {
+            pendingTileOrder = ordered
+        }
+        return ordered
     }
 
     mutating func lock(on detection: DetectionObservation) {

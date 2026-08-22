@@ -158,3 +158,19 @@ Generate each model's device result from completed app JSONL scenes using `train
 checked-in field evaluation JSON is the schema example). Compare only matched device, protocol, and frozen-manifest
 runs with `training/compare_models.py`; its ordering prioritizes 10-second discovery, false confirmed alerts/min,
 and latency before offline mAP.
+
+## Color Assist reference and future image-input A/B
+
+`training/color_assist.py` mirrors the iOS low-resolution formulas and evaluates round-robin OFF versus saliency
+ordered ON using `training/color_assist_manifest.example.csv`. Use held-out field images with either a normalized
+ball bbox or a human `ball_tile_index`. Report tile rank/top-1/top-3 plus reference-machine processing latency; do
+not interpret these as YOLO accuracy or iPhone thermal results.
+
+For the device experiment, use the same Raw RGB model/checkpoint for both arms and change only the experimental
+Color Assist flag. Summarize separate completed JSONL runs so discovery within 10 seconds, time to first candidate,
+false confirmed alerts/min, confirmation latency, occlusion success, Color Assist latency, and thermal state remain
+comparable.
+
+A future Filtered RGB model may be trained as a separate model/input variant using exported
+`golf_contrast_rgb` images, but its dataset manifest, model ID, checkpoint, and evaluation arm must remain separate.
+The current production detector input is Raw RGB only.

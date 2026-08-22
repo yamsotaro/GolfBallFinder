@@ -246,7 +246,14 @@ class RepositoryConfigurationTests(unittest.TestCase):
             "scanMode",
             "candidateToConfirmedMs",
             "sceneStartToConfirmedMs",
+            "sceneStartToFirstCandidateMs",
             "detectedBBox",
+            "colorAssistEnabled",
+            "colorAssistFilterMode",
+            "colorProcessingLatencyMs",
+            "tileSaliencyScores",
+            "selectedTileOrder",
+            "ballContainingTileRank",
             "timestamp",
             "false_positive",
             "missed_golf_ball",
@@ -257,6 +264,33 @@ class RepositoryConfigurationTests(unittest.TestCase):
             source,
         )
         self.assertIn("modelCheckpointSHA256", source)
+
+    def test_color_assist_is_off_by_default_and_cannot_replace_raw_yolo_input(self) -> None:
+        config = (ROOT / "GolfBallFinder" / "AppConfig.swift").read_text(encoding="utf-8")
+        engine = (ROOT / "GolfBallFinder" / "Detection" / "ColorAssistEngine.swift").read_text(
+            encoding="utf-8"
+        )
+        camera = (ROOT / "GolfBallFinder" / "Camera" / "CameraController.swift").read_text(
+            encoding="utf-8"
+        )
+        scheduler = (ROOT / "GolfBallFinder" / "Detection" / "ScanScheduler.swift").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("colorAssistDefaultEnabled = false", config)
+        self.assertIn("CILanczosScaleTransform", engine)
+        self.assertIn('"CIAreaAverage"', engine)
+        self.assertIn('"CIAreaMaximum"', engine)
+        self.assertIn("whiteBallSaliency", engine)
+        self.assertIn("excessGreen", engine)
+        self.assertIn("CIColorInvert", engine)
+        self.assertIn("let modelImage =", camera)
+        self.assertIn("? image", camera)
+        self.assertIn("image.cropped(normalizedTopLeft: regionRect)", camera)
+        self.assertIn("self.detector.predict(\n                image: modelImage", camera)
+        self.assertNotIn("image: colorAnalysis", camera)
+        self.assertIn("tileVisitCount", scheduler)
+        self.assertIn("enabled == false", scheduler)
 
     def test_inference_path_discards_late_frames_and_has_thermal_policy(self) -> None:
         camera = (ROOT / "GolfBallFinder" / "Camera" / "CameraController.swift").read_text(

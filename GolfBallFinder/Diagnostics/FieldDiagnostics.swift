@@ -77,6 +77,15 @@ struct FieldDiagnosticRecord: Codable, Equatable, Sendable {
     let thermalState: String
     let detectionConfidence: Float?
     let scanMode: String?
+    let colorAssistRequested: Bool
+    let colorAssistEnabled: Bool
+    let colorAssistFilterMode: String
+    let colorProcessingLatencyMs: Double?
+    let tileSaliencyScores: [Double]?
+    let selectedTileOrder: [Int]
+    let ballContainingTileIndex: Int?
+    let ballContainingTileRank: Int?
+    let sceneStartToFirstCandidateMs: Double?
     let candidateToConfirmedMs: Double?
     let sceneStartToConfirmedMs: Double?
     let detectedBBox: DiagnosticBoundingBox?
@@ -146,6 +155,15 @@ final class FieldDiagnosticsStore: ObservableObject {
     @Published private(set) var hasRecentDetection = false
     @Published private(set) var hasRecentConfirmedDetection = false
     @Published private(set) var scanMode = ScanSource.fullFrame.rawValue
+    @Published private(set) var colorAssistRequested = AppConfig.colorAssistDefaultEnabled
+    @Published private(set) var colorAssistEnabled = false
+    @Published private(set) var colorAssistFilterMode = ColorAssistMode.whiteBallSaliency.rawValue
+    @Published private(set) var colorProcessingLatencyMs: Double?
+    @Published private(set) var tileSaliencyScores: [Double]?
+    @Published private(set) var selectedTileOrder = Array(AppConfig.searchTiles.indices)
+    @Published private(set) var ballContainingTileIndex: Int?
+    @Published private(set) var ballContainingTileRank: Int?
+    @Published private(set) var sceneStartToFirstCandidateMs: Double?
     @Published private(set) var candidateToConfirmedMs: Double?
     @Published private(set) var sceneStartToConfirmedMs: Double?
     @Published private(set) var detectedBBox: DiagnosticBoundingBox?
@@ -172,6 +190,7 @@ final class FieldDiagnosticsStore: ObservableObject {
     private var lastSampleLoggedAt: TimeInterval?
     private var candidateBeganAt: TimeInterval?
     private var sceneBeganAt: TimeInterval?
+    private var recentSceneStartToFirstCandidateMs: Double?
     private var previousWasFound = false
     private var latestObservation: DetectionObservation?
     private var recentFeedbackObservation: DetectionObservation?
@@ -206,6 +225,12 @@ final class FieldDiagnosticsStore: ObservableObject {
         targetFPS: Double,
         zoom: CGFloat,
         statistics: InferenceFrameStatistics,
+        colorAssistRequested: Bool,
+        colorAssistEnabled: Bool,
+        colorAssistMode: ColorAssistMode,
+        colorProcessingLatencyMs: Double?,
+        tileSaliencyScores: [Double]?,
+        selectedTileOrder: [Int],
         now: Date = Date()
     ) {
         let time = now.timeIntervalSinceReferenceDate
@@ -216,6 +241,13 @@ final class FieldDiagnosticsStore: ObservableObject {
         scanMode = source.rawValue
         frameStatistics = statistics
         latestZoom = zoom
+        self.colorAssistRequested = colorAssistRequested
+        self.colorAssistEnabled = colorAssistEnabled
+        colorAssistFilterMode = colorAssistMode.rawValue
+        self.colorProcessingLatencyMs = colorProcessingLatencyMs
+        self.tileSaliencyScores = tileSaliencyScores
+        self.selectedTileOrder = selectedTileOrder
+        updateBallContainingTileRank()
 
         let observation: DetectionObservation?
         switch state {
@@ -239,14 +271,17 @@ final class FieldDiagnosticsStore: ObservableObject {
             hasRecentConfirmedDetection = false
             recentCandidateToConfirmedMs = nil
             recentSceneStartToConfirmedMs = nil
+            recentSceneStartToFirstCandidateMs = nil
         }
 
         switch state {
         case .candidate:
             if candidateBeganAt == nil { candidateBeganAt = time }
+            recordFirstCandidateIfNeeded(at: time)
             previousWasFound = false
         case .found:
             if candidateBeganAt == nil { candidateBeganAt = time }
+            recordFirstCandidateIfNeeded(at: time)
             let duration = max(0, (time - (candidateBeganAt ?? time)) * 1_000)
             candidateToConfirmedMs = duration
             if let sceneBeganAt {
@@ -258,6 +293,7 @@ final class FieldDiagnosticsStore: ObservableObject {
                 append(record(
                     kind: .confirmed,
                     now: now,
+                    sceneStartToFirstCandidateMs: sceneStartToFirstCandidateMs,
                     candidateToConfirmedMs: duration,
                     sceneStartToConfirmedMs: sceneStartToConfirmedMs
                 ))
@@ -289,6 +325,7 @@ final class FieldDiagnosticsStore: ObservableObject {
         activeSceneType = type
         sceneBeganAt = Date().timeIntervalSinceReferenceDate
         sceneStartToConfirmedMs = nil
+        sceneStartToFirstCandidateMs = nil
         candidateBeganAt = nil
         previousWasFound = false
         latestObservation = nil
@@ -300,6 +337,7 @@ final class FieldDiagnosticsStore: ObservableObject {
         hasRecentConfirmedDetection = false
         recentCandidateToConfirmedMs = nil
         recentSceneStartToConfirmedMs = nil
+        recentSceneStartToFirstCandidateMs = nil
         latestDetectionState = "scanning"
         lastSaveMessage = "Scene \(cleanedID) を開始しました"
         append(record(
@@ -327,6 +365,7 @@ final class FieldDiagnosticsStore: ObservableObject {
         activeSceneType = nil
         sceneBeganAt = nil
         sceneStartToConfirmedMs = nil
+        sceneStartToFirstCandidateMs = nil
         candidateBeganAt = nil
         previousWasFound = false
         latestObservation = nil
@@ -338,8 +377,18 @@ final class FieldDiagnosticsStore: ObservableObject {
         hasRecentConfirmedDetection = false
         recentCandidateToConfirmedMs = nil
         recentSceneStartToConfirmedMs = nil
+        recentSceneStartToFirstCandidateMs = nil
         latestDetectionState = "scanning"
         return true
+    }
+
+    func annotateBallContainingTile(_ tileIndex: Int?) {
+        if let tileIndex, AppConfig.searchTiles.indices.contains(tileIndex) {
+            ballContainingTileIndex = tileIndex
+        } else {
+            ballContainingTileIndex = nil
+        }
+        updateBallContainingTileRank()
     }
 
     func recordCameraEvent(_ note: String, thermal: ProcessInfo.ThermalState = ProcessInfo.processInfo.thermalState) {
@@ -368,6 +417,9 @@ final class FieldDiagnosticsStore: ObservableObject {
             kind: kind,
             now: now,
             eventID: eventID,
+            sceneStartToFirstCandidateMs: kind == .miss
+                ? sceneStartToFirstCandidateMs
+                : recentSceneStartToFirstCandidateMs,
             candidateToConfirmedMs: kind == .miss ? candidateToConfirmedMs : recentCandidateToConfirmedMs,
             sceneStartToConfirmedMs: kind == .miss ? sceneStartToConfirmedMs : recentSceneStartToConfirmedMs,
             manualLabel: manualLabel(for: kind),
@@ -383,6 +435,7 @@ final class FieldDiagnosticsStore: ObservableObject {
             hasRecentConfirmedDetection = false
             recentCandidateToConfirmedMs = nil
             recentSceneStartToConfirmedMs = nil
+            recentSceneStartToFirstCandidateMs = nil
         }
 
         ioQueue.async { [weak self] in
@@ -431,6 +484,15 @@ final class FieldDiagnosticsStore: ObservableObject {
                     thermalState: baseRecord.thermalState,
                     detectionConfidence: baseRecord.detectionConfidence,
                     scanMode: baseRecord.scanMode,
+                    colorAssistRequested: baseRecord.colorAssistRequested,
+                    colorAssistEnabled: baseRecord.colorAssistEnabled,
+                    colorAssistFilterMode: baseRecord.colorAssistFilterMode,
+                    colorProcessingLatencyMs: baseRecord.colorProcessingLatencyMs,
+                    tileSaliencyScores: baseRecord.tileSaliencyScores,
+                    selectedTileOrder: baseRecord.selectedTileOrder,
+                    ballContainingTileIndex: baseRecord.ballContainingTileIndex,
+                    ballContainingTileRank: baseRecord.ballContainingTileRank,
+                    sceneStartToFirstCandidateMs: baseRecord.sceneStartToFirstCandidateMs,
                     candidateToConfirmedMs: baseRecord.candidateToConfirmedMs,
                     sceneStartToConfirmedMs: baseRecord.sceneStartToConfirmedMs,
                     detectedBBox: baseRecord.detectedBBox,
@@ -469,6 +531,7 @@ final class FieldDiagnosticsStore: ObservableObject {
         kind: FieldEventKind,
         now: Date,
         eventID: String = UUID().uuidString.lowercased(),
+        sceneStartToFirstCandidateMs: Double? = nil,
         candidateToConfirmedMs: Double? = nil,
         sceneStartToConfirmedMs: Double? = nil,
         manualLabel: String? = nil,
@@ -479,7 +542,7 @@ final class FieldDiagnosticsStore: ObservableObject {
     ) -> FieldDiagnosticRecord {
         let capturedObservation = observation ?? latestObservation
         return FieldDiagnosticRecord(
-            schemaVersion: 1,
+            schemaVersion: 2,
             eventID: eventID,
             sessionID: sessionID,
             sceneID: activeSceneID,
@@ -496,6 +559,15 @@ final class FieldDiagnosticsStore: ObservableObject {
             thermalState: thermalState,
             detectionConfidence: capturedObservation?.confidence,
             scanMode: scanMode,
+            colorAssistRequested: colorAssistRequested,
+            colorAssistEnabled: colorAssistEnabled,
+            colorAssistFilterMode: colorAssistFilterMode,
+            colorProcessingLatencyMs: colorProcessingLatencyMs,
+            tileSaliencyScores: tileSaliencyScores,
+            selectedTileOrder: selectedTileOrder,
+            ballContainingTileIndex: ballContainingTileIndex,
+            ballContainingTileRank: ballContainingTileRank,
+            sceneStartToFirstCandidateMs: sceneStartToFirstCandidateMs ?? self.sceneStartToFirstCandidateMs,
             candidateToConfirmedMs: candidateToConfirmedMs,
             sceneStartToConfirmedMs: sceneStartToConfirmedMs,
             detectedBBox: capturedObservation.map { DiagnosticBoundingBox($0.normalizedRect) },
@@ -518,6 +590,22 @@ final class FieldDiagnosticsStore: ObservableObject {
         case .miss: return "missed_golf_ball"
         default: return "unknown"
         }
+    }
+
+    private func recordFirstCandidateIfNeeded(at time: TimeInterval) {
+        guard sceneStartToFirstCandidateMs == nil, let sceneBeganAt else { return }
+        let duration = max(0, (time - sceneBeganAt) * 1_000)
+        sceneStartToFirstCandidateMs = duration
+        recentSceneStartToFirstCandidateMs = duration
+    }
+
+    private func updateBallContainingTileRank() {
+        guard let ballContainingTileIndex,
+              let position = selectedTileOrder.firstIndex(of: ballContainingTileIndex) else {
+            ballContainingTileRank = nil
+            return
+        }
+        ballContainingTileRank = position + 1
     }
 
     private func createSessionAndWriteStart() {

@@ -122,6 +122,27 @@ The implementation discards frames while inference is busy and stores no pending
 `framesDroppedBusy`, `framesDroppedCadence`, `cameraFramesReceived`, and `inferenceFramesAdmitted`; increasing drop
 counters are expected, but increasing latency or stale overlays are not.
 
+## 6.1 Color Assist matched A/B experiment
+
+Use one frozen subset of at least 20 positive scenes and 10 negative scenes. Keep the model checkpoint, app build,
+lens, starting position, sweep direction/speed, scene order, and approximate lighting fixed. Alternate the first arm
+by scene (OFF first on odd scenes, ON first on even scenes) to reduce warming/order bias.
+
+1. In Field Diagnostics select `white_ball_saliency`, set Color Assist OFF, and record a uniquely suffixed `_off`
+   Scene ID. Keep diagnostics closed during the 10-second sweep.
+2. Repeat the same placement/sweep with Color Assist ON using `_on`. Confirm `Effective = ON`; serious/critical
+   thermal state intentionally suspends processing and must be reported rather than hidden.
+3. When the ball location is known, annotate the best containing tile (0 top-left, 1 top-right, 2 bottom-left,
+   3 bottom-right, 4 center). This writes the human-assisted ball-containing tile rank.
+4. Record true positive, false positive, or miss exactly as in the normal protocol. Do not accept a white saliency
+   hotspot as a ball unless the existing YOLO/temporal confirmation and human verification agree.
+5. Repeat selected scenes with `raw`, `golf_contrast`, and `excess_green` only after the primary OFF versus
+   `white_ball_saliency` comparison has enough samples; do not mix modes inside one summarized result.
+
+Compare both arms on 10-second discovery, scene-start-to-first-candidate p50/p90, scene-to-confirm p50/p90, false
+confirmed alerts/min, occlusion success, Color Assist processing p50/p95, inference FPS/busy drops, thermal-state
+time, and battery delta. A better annotated tile rank or attractive Debug preview is insufficient for adoption.
+
 ## 7. KPI calculations
 
 Use only human-verified events and a frozen scene list.
@@ -131,7 +152,8 @@ Use only human-verified events and a frozen scene list.
 - **False confirmed alerts/min** = human-rejected green confirmations / total negative-only scan minutes. Also report
   all rejected candidate+confirmed events separately.
 - **Detection latency** = p50/p90 of `scene_start_to_confirmed_ms` for successful scenes. Separately report
-  `candidate_to_confirmed_ms` to tune temporal confirmation.
+  `scene_start_to_first_candidate_ms` and `candidate_to_confirmed_ms` to separate scheduler discovery from temporal
+  confirmation.
 - **Occlusion success** = successful scenes within 10 seconds / attempted scenes for each visibility bucket.
 - **Thermal behavior** = time spent in each thermal state, effective FPS and inference latency by state, plus whether
   the app crashed or became operationally unusable.
@@ -171,7 +193,8 @@ After each outing:
    ```
 
    The summarizer rejects scenes without both start/end events and rejects logs containing multiple checkpoint
-   hashes.
+   hashes. It also rejects completed scenes that mix Color Assist requested state or filter mode; summarize OFF and
+   ON arms separately and give their `--model-id` values explicit suffixes such as `_color_off` and `_color_on`.
 
 Never move a field-test session between splits merely to improve a result, and never promote a model because mAP
 improved while 10-second discovery or false confirmed alerts worsened.

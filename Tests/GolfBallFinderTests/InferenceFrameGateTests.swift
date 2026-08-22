@@ -44,4 +44,11 @@ final class InferenceFrameGateTests: XCTestCase {
         XCTAssertGreaterThan(serious, critical)
         XCTAssertGreaterThanOrEqual(critical, 1)
     }
+
+    func testColorAssistPausesBeforeSeriousThermalPressure() {
+        XCTAssertTrue(ProcessInfo.ThermalState.nominal.allowsColorAssist)
+        XCTAssertTrue(ProcessInfo.ThermalState.fair.allowsColorAssist)
+        XCTAssertFalse(ProcessInfo.ThermalState.serious.allowsColorAssist)
+        XCTAssertFalse(ProcessInfo.ThermalState.critical.allowsColorAssist)
+    }
 }

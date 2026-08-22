@@ -42,6 +42,12 @@ Covered pure logic:
 - every screen edge, oversized/negative ROI clipping, and crop/aspect-fill coordinate edges;
 - inference busy/cadence gating has no pending backlog and accepts fresh frames after camera timestamp reset;
 - thermal policy monotonically reduces target inference FPS.
+- Color Assist OFF preserves the original round-robin order;
+- prioritized cycles remain deterministic and visit all five tiles without starvation;
+- priority changes apply at a tile-cycle boundary, not halfway through a cycle;
+- all four Color Assist modes produce finite tile scores on Core Image;
+- white-ball saliency can prioritize a synthetic white patch in grass and render Debug previews;
+- Color Assist pauses at serious/critical thermal state while ROI behavior remains authoritative.
 
 ## Build gate
 
@@ -77,6 +83,7 @@ Record at least:
 - device thermal state;
 - battery delta over a 10-minute scan;
 - full-frame, tile, ROI inference latency.
+- Color Assist processing p50/p95, busy-frame drop delta, and effective FPS delta with the same scenes OFF/ON.
 
 The separate Field Diagnostics sheet records these fields at a bounded 2 Hz sample cadence while updating live
 metrics per completed inference. It also records scene starts, human-verified correct finds, false positives, and
@@ -93,6 +100,7 @@ Minimum first serious field pass:
 - at least 5 deep-rough/partial-visibility scenes;
 - both 1x and 2x in selected scenes;
 - collect screenshots/video or written failure descriptions for every miss/false alert.
+- repeat a frozen subset with Color Assist OFF and ON using the same model, sweep, lens, and scene order.
 
 Start from `docs/FIELD_TEST_LOG_TEMPLATE.csv`; preserve the exact app build number and checkpoint hash for each row.
 
@@ -104,3 +112,4 @@ Before accepting a new model/config:
 - do not tune using the test split;
 - compare scene discovery, false alerts/minute, and latency together;
 - reject a model that improves mAP while materially worsening field discovery or false-alert behavior.
+- reject Color Assist if tile rank looks better but discovery, false alerts, latency, or thermal behavior worsens.

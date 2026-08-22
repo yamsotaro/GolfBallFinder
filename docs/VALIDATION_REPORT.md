@@ -46,8 +46,16 @@ Completed in the current Windows workspace:
 - App Store build-number injection, App Icon asset configuration, simulator-test CI steps, safe frame session IDs,
   and export manifests were added during the audit.
 - After the Core ML target-registration fix, Windows bootstrap passed again, including seed SHA verification and
-  29 Python tests. Swift tree-sitter syntax parsing passed for 20 Swift app/test files, and all 23 Codemagic script
+  33 Python tests. Swift tree-sitter syntax parsing passed for 22 Swift app/test files, and all 23 Codemagic script
   blocks passed Bash syntax checking.
+
+## Color Assist Windows refresh — 2026-08-23
+
+The default-off Color Assist revision adds Core Image transforms, tile-cycle ordering, diagnostics fields/debug
+previews, and the Python reference evaluator. Windows tests cover OFF baseline preservation, offline white-ball
+saliency rank, mixed-arm rejection, configuration invariants, and Python/Swift syntax. Core Image runtime kernels,
+Simulator XCTest/type-checking, iPhone processing latency, thermal impact, and field KPI changes still require the
+unsigned Codemagic workflows and then the physical iPhone 16 Pro A/B protocol.
 
 The earlier Swift parser result applies to the generated starter revision, not automatically to later edits.
 Because Swift/Xcode is unavailable on this Windows host, every later Swift edit still requires the relevant

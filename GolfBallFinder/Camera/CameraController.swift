@@ -11,6 +11,10 @@ final class CameraController: NSObject, ObservableObject {
     @Published private(set) var currentSource: ScanSource = .fullFrame
     @Published private(set) var zoomFactor: CGFloat = 1.0
     @Published private(set) var cameraPermissionDenied = false
+    @Published private(set) var colorAssistEnabled = AppConfig.colorAssistDefaultEnabled
+    @Published private(set) var colorAssistEffective = false
+    @Published private(set) var colorAssistMode: ColorAssistMode = .whiteBallSaliency
+    @Published private(set) var colorAssistPreview: ColorAssistPreview?
 
     let session = AVCaptureSession()
     let diagnostics = FieldDiagnosticsStore()
@@ -19,11 +23,18 @@ final class CameraController: NSObject, ObservableObject {
     private let videoQueue = DispatchQueue(label: "GolfBallFinder.camera.frames", qos: .userInteractive)
     private let inferenceQueue = DispatchQueue(label: "GolfBallFinder.inference", qos: .userInitiated)
     private let detector = GolfBallDetector()
+    private let colorAssistEngine = ColorAssistEngine()
     private let latestFrame = LatestFrameSnapshot()
 
     // Accessed only from inferenceQueue.
     private var scheduler = ScanScheduler()
     private var stabilizer = DetectionStabilizer()
+    private var colorAssistRequested = AppConfig.colorAssistDefaultEnabled
+    private var selectedColorAssistMode: ColorAssistMode = .whiteBallSaliency
+    private var colorAssistPreviewRequested = false
+    private var lastColorAssistPreviewAt: TimeInterval?
+    private var latestColorAssistScores: [Double]?
+    private var latestSelectedTileOrder = Array(AppConfig.searchTiles.indices)
 
     // Accessed only from videoQueue. The gate intentionally has no pending-frame storage.
     private var frameGate = InferenceFrameGate()
@@ -135,6 +146,46 @@ final class CameraController: NSObject, ObservableObject {
 
     func resetSearch() {
         invalidateSearch(publishScanning: true)
+    }
+
+    func setColorAssistEnabled(_ enabled: Bool) {
+        colorAssistEnabled = enabled
+        if !enabled {
+            colorAssistEffective = false
+        }
+        inferenceQueue.async { [weak self] in
+            guard let self else { return }
+            self.colorAssistRequested = enabled
+            if !enabled {
+                _ = self.scheduler.updateTilePriorities(scores: nil, enabled: false)
+                self.latestColorAssistScores = nil
+                self.latestSelectedTileOrder = Array(AppConfig.searchTiles.indices)
+            }
+        }
+    }
+
+    func setColorAssistMode(_ mode: ColorAssistMode) {
+        colorAssistMode = mode
+        inferenceQueue.async { [weak self] in
+            self?.selectedColorAssistMode = mode
+        }
+    }
+
+    func setColorAssistPreviewRequested(_ requested: Bool) {
+        inferenceQueue.async { [weak self] in
+            guard let self else { return }
+            self.colorAssistPreviewRequested = requested
+            if !requested {
+                self.lastColorAssistPreviewAt = nil
+                DispatchQueue.main.async {
+                    self.colorAssistPreview = nil
+                }
+            }
+        }
+    }
+
+    func annotateBallContainingTile(_ tileIndex: Int?) {
+        diagnostics.annotateBallContainingTile(tileIndex)
     }
 
     private func invalidateSearch(publishScanning: Bool, suspendInference: Bool = false) {
@@ -375,8 +426,57 @@ final class CameraController: NSObject, ObservableObject {
 
         inferenceQueue.async { [weak self] in
             guard let self else { return }
+            let colorAssistRequested = self.colorAssistRequested
+            let selectedColorAssistMode = self.selectedColorAssistMode
+            let isROILocked = self.scheduler.isROILocked
+            let thermalAllowsColorAssist = thermal.allowsColorAssist
+            let colorAssistEffective = colorAssistRequested && thermalAllowsColorAssist
+            let shouldCreatePreview = self.colorAssistPreviewRequested
+                && thermalAllowsColorAssist
+                && (self.lastColorAssistPreviewAt.map {
+                    timestamp < $0 || timestamp - $0 >= AppConfig.colorAssistPreviewInterval
+                } ?? true)
+            let shouldAnalyzeColor = thermalAllowsColorAssist
+                && !isROILocked
+                && (colorAssistEffective || shouldCreatePreview)
+
+            let colorAnalysis: ColorAssistAnalysis?
+            if shouldAnalyzeColor {
+                colorAnalysis = self.colorAssistEngine.analyze(
+                    image: image,
+                    mode: selectedColorAssistMode,
+                    tileRegions: AppConfig.searchTiles,
+                    includePreview: shouldCreatePreview
+                )
+                if shouldCreatePreview, colorAnalysis?.preview != nil {
+                    self.lastColorAssistPreviewAt = timestamp
+                }
+            } else {
+                colorAnalysis = nil
+            }
+
+            let scoreValues = colorAnalysis?.tileScores.map(\.score)
+            let selectedTileOrder: [Int]
+            if isROILocked {
+                selectedTileOrder = self.scheduler.currentTileOrder
+            } else {
+                selectedTileOrder = self.scheduler.updateTilePriorities(
+                    scores: scoreValues,
+                    enabled: colorAssistEffective && colorAnalysis != nil
+                )
+                self.latestSelectedTileOrder = selectedTileOrder
+                self.latestColorAssistScores = scoreValues
+            }
+            let colorAssistOperational = colorAssistEffective
+                && (isROILocked || colorAnalysis != nil)
+            let diagnosticTileScores = scoreValues ?? self.latestColorAssistScores
+            let diagnosticTileOrder = isROILocked
+                ? self.latestSelectedTileOrder
+                : selectedTileOrder
             let region = self.scheduler.nextRegion()
             let regionRect = region.normalizedRect
+            // Baseline invariant: YOLO always receives the original raw camera image or its raw
+            // crop. Color Assist outputs are used only by updateTilePriorities above.
             let modelImage = regionRect == CGRect(x: 0, y: 0, width: 1, height: 1)
                 ? image
                 : image.cropped(normalizedTopLeft: regionRect)
@@ -414,6 +514,10 @@ final class CameraController: NSObject, ObservableObject {
                     self.inferenceMs = prediction.inferenceMs
                     self.currentSource = region.source
                     self.finderState = stabilized.state
+                    self.colorAssistEffective = colorAssistOperational
+                    if let preview = colorAnalysis?.preview {
+                        self.colorAssistPreview = preview
+                    }
                     self.diagnostics.recordInference(
                         latencyMs: prediction.inferenceMs,
                         source: region.source,
@@ -421,7 +525,13 @@ final class CameraController: NSObject, ObservableObject {
                         thermal: thermal,
                         targetFPS: policy.processedFPS,
                         zoom: self.zoomFactor,
-                        statistics: statistics
+                        statistics: statistics,
+                        colorAssistRequested: colorAssistRequested,
+                        colorAssistEnabled: colorAssistOperational,
+                        colorAssistMode: selectedColorAssistMode,
+                        colorProcessingLatencyMs: colorAnalysis?.processingLatencyMs,
+                        tileSaliencyScores: diagnosticTileScores,
+                        selectedTileOrder: diagnosticTileOrder
                     )
                     if stabilized.shouldTriggerFeedback {
                         FeedbackManager.shared.ballFound()
