@@ -5,13 +5,28 @@ import XCTest
 final class GeometryTests: XCTestCase {
     func testValidatesUltralyticsTopLeftNormalizedBox() {
         let rect = CGRect(x: 0.40, y: 0.45, width: 0.05, height: 0.04)
-        XCTAssertEqual(
+        assertRectEqual(
             validatedNormalizedTopLeftDetectionRect(
                 rect,
                 imageSize: CGSize(width: 720, height: 1280)
             ),
             rect
         )
+    }
+
+    func testAcceptsValidBoxesOnNormalizedFrameEdges() {
+        let imageSize = CGSize(width: 720, height: 1280)
+        let boxes = [
+            CGRect(x: 0, y: 0, width: 0.02, height: 0.02),
+            CGRect(x: 0.98, y: 0.98, width: 0.02, height: 0.02),
+        ]
+
+        for box in boxes {
+            assertRectEqual(
+                validatedNormalizedTopLeftDetectionRect(box, imageSize: imageSize),
+                box
+            )
+        }
     }
 
     func testRejectsReportedExtremeVerticalSliver() {
@@ -24,17 +39,84 @@ final class GeometryTests: XCTestCase {
         )
     }
 
-    func testRejectsNonFiniteNonPositiveAndOutOfBoundsBoxesBeforeClamping() {
+    func testRejectsExtremeHorizontalSliver() {
+        let reported = CGRect(x: 0.017, y: 0.996, width: 0.980, height: 0.004)
+        XCTAssertNil(
+            validatedNormalizedTopLeftDetectionRect(
+                reported,
+                imageSize: CGSize(width: 720, height: 1280)
+            )
+        )
+    }
+
+    func testRejectsNegativeWidthBeforeCGRectStandardization() {
+        let raw = CGRect(x: 0.2, y: 0.2, width: -0.1, height: 0.1)
+        XCTAssertLessThan(raw.size.width, 0)
+        XCTAssertNil(validatedNormalizedTopLeftDetectionRect(raw))
+    }
+
+    func testRejectsNegativeHeightBeforeCGRectStandardization() {
+        let raw = CGRect(x: 0.2, y: 0.2, width: 0.1, height: -0.1)
+        XCTAssertLessThan(raw.size.height, 0)
+        XCTAssertNil(validatedNormalizedTopLeftDetectionRect(raw))
+    }
+
+    func testRejectsNonFiniteZeroSizedAndOutOfBoundsBoxesBeforeClamping() {
         let invalid: [CGRect] = [
             CGRect(x: .nan, y: 0.2, width: 0.1, height: 0.1),
             CGRect(x: 0.2, y: .infinity, width: 0.1, height: 0.1),
+            CGRect(x: 0.2, y: 0.2, width: .infinity, height: 0.1),
+            CGRect(x: 0.2, y: 0.2, width: 0.1, height: .nan),
             CGRect(x: 0.2, y: 0.2, width: 0, height: 0.1),
-            CGRect(x: 0.2, y: 0.2, width: 0.1, height: -0.1),
+            CGRect(x: 0.2, y: 0.2, width: 0.1, height: 0),
             CGRect(x: -0.1, y: 0.2, width: 0.2, height: 0.2),
             CGRect(x: 0.9, y: 0.2, width: 0.2, height: 0.2),
         ]
         for rect in invalid {
             XCTAssertNil(validatedNormalizedTopLeftDetectionRect(rect), "accepted \(rect)")
+        }
+    }
+
+    func testValidFullTileAndROILocalBoxesAreAcceptedAndMapToSameFrameBox() {
+        let expected = CGRect(x: 0.40, y: 0.40, width: 0.04, height: 0.04)
+        let cases: [(name: String, crop: CGRect, local: CGRect)] = [
+            (
+                name: "full",
+                crop: CGRect(x: 0, y: 0, width: 1, height: 1),
+                local: expected
+            ),
+            (
+                name: "tile",
+                crop: CGRect(x: 0.20, y: 0.10, width: 0.50, height: 0.50),
+                local: CGRect(x: 0.40, y: 0.60, width: 0.08, height: 0.08)
+            ),
+            (
+                name: "roi",
+                crop: CGRect(x: 0.35, y: 0.35, width: 0.20, height: 0.20),
+                local: CGRect(x: 0.25, y: 0.25, width: 0.20, height: 0.20)
+            ),
+        ]
+
+        for testCase in cases {
+            let cropImageSize = CGSize(
+                width: 1_000 * testCase.crop.width,
+                height: 1_000 * testCase.crop.height
+            )
+            guard let local = validatedNormalizedTopLeftDetectionRect(
+                testCase.local,
+                imageSize: cropImageSize
+            ) else {
+                XCTFail("rejected valid \(testCase.name) local bbox")
+                continue
+            }
+            let mapped = mapCropRectToFullFrame(local, cropRegion: testCase.crop)
+            assertRectEqual(
+                validatedNormalizedTopLeftDetectionRect(
+                    mapped,
+                    imageSize: CGSize(width: 1_000, height: 1_000)
+                ),
+                expected
+            )
         }
     }
 
@@ -58,7 +140,7 @@ final class GeometryTests: XCTestCase {
             CGRect(x: 0.95, y: 0.95, width: 0.05, height: 0.05),
         ]
         for box in boxes {
-            XCTAssertEqual(
+            assertRectEqual(
                 mapCropRectToFullFrame(box, cropRegion: CGRect(x: 0, y: 0, width: 1, height: 1)),
                 box
             )
@@ -79,13 +161,13 @@ final class GeometryTests: XCTestCase {
             )
         }
 
-        assertRect(
+        assertRectEqual(
             mapCropRectToFullFrame(localRect(in: topLeftTile), cropRegion: topLeftTile),
-            equals: expected
+            expected
         )
-        assertRect(
+        assertRectEqual(
             mapCropRectToFullFrame(localRect(in: centerTile), cropRegion: centerTile),
-            equals: expected
+            expected
         )
     }
 
@@ -169,7 +251,7 @@ final class GeometryTests: XCTestCase {
 
     func testOversizedROIClipsToWholeFrame() {
         let roi = CGRect(x: -2, y: -1, width: 4, height: 3).clampedPreservingSize()
-        XCTAssertEqual(roi, CGRect(x: 0, y: 0, width: 1, height: 1))
+        assertRectEqual(roi, CGRect(x: 0, y: 0, width: 1, height: 1))
     }
 
     func testCropMappingClipsNegativeLocalCoordinates() {
@@ -200,7 +282,7 @@ final class GeometryTests: XCTestCase {
     }
 
     func testZeroImageOrViewSizeProducesZeroDisplayRect() {
-        XCTAssertEqual(
+        assertRectEqual(
             aspectFillDisplayRect(
                 normalizedRect: CGRect(x: 0.2, y: 0.2, width: 0.1, height: 0.1),
                 imageSize: .zero,
@@ -210,16 +292,30 @@ final class GeometryTests: XCTestCase {
         )
     }
 
-    private func assertRect(
+    private func assertRectEqual(
         _ actual: CGRect,
-        equals expected: CGRect,
-        accuracy: CGFloat = 0.0001,
+        _ expected: CGRect,
+        accuracy: CGFloat = 1e-9,
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        XCTAssertEqual(actual.minX, expected.minX, accuracy: accuracy, file: file, line: line)
-        XCTAssertEqual(actual.minY, expected.minY, accuracy: accuracy, file: file, line: line)
-        XCTAssertEqual(actual.width, expected.width, accuracy: accuracy, file: file, line: line)
-        XCTAssertEqual(actual.height, expected.height, accuracy: accuracy, file: file, line: line)
+        XCTAssertEqual(actual.origin.x, expected.origin.x, accuracy: accuracy, file: file, line: line)
+        XCTAssertEqual(actual.origin.y, expected.origin.y, accuracy: accuracy, file: file, line: line)
+        XCTAssertEqual(actual.size.width, expected.size.width, accuracy: accuracy, file: file, line: line)
+        XCTAssertEqual(actual.size.height, expected.size.height, accuracy: accuracy, file: file, line: line)
+    }
+
+    private func assertRectEqual(
+        _ actual: CGRect?,
+        _ expected: CGRect,
+        accuracy: CGFloat = 1e-9,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let actual = actual else {
+            XCTFail("expected CGRect, got nil", file: file, line: line)
+            return
+        }
+        assertRectEqual(actual, expected, accuracy: accuracy, file: file, line: line)
     }
 }
