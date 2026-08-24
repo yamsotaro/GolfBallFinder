@@ -22,7 +22,7 @@ branch protection, and the ability to start a connected Codemagic build could no
 | Priority | Finding | Resolution in this audit |
 |---|---|---|
 | Critical | No App Icon asset was configured, creating an App Store Connect/TestFlight validation risk. | Added an opaque 1024x1024 `AppIcon` asset catalog and enabled it in `project.yml`. |
-| Critical | Every signed build used `CURRENT_PROJECT_VERSION: 1`, so subsequent uploads could be rejected as duplicate builds. | `scripts/configure_bundle_id.py` now validates/injects Codemagic `BUILD_NUMBER`; the signed workflow supplies it. |
+| Critical | Every signed build used `CURRENT_PROJECT_VERSION: 1`, so subsequent uploads could be rejected as duplicate builds. | `scripts/configure_bundle_id.py` injects a build number selected as the highest App Store Connect/TestFlight build plus one. |
 | High | `ios-compile-check` compiled but did not run the critical Swift unit tests. | Both Codemagic workflows now select an available iPhone simulator and run `xcodebuild test`. |
 | High | macOS Core ML dependencies were broad and could resolve to a PyTorch version beyond coremltools 9.0's supported export line. | Pinned the Mac exporter to coremltools 9.0, PyTorch 2.7.0/torchvision 0.22.0, NumPy 1.26.4, and compatible direct dependencies. Apple Silicon/Python 3.11 resolution passed a pip dry run. |
 | High | `GolfBallDetector` declared unchecked sendability while model readiness/error state was accessed from multiple queues without synchronization. | Added locked model state; inference can only receive a model after successful load. |
@@ -70,8 +70,10 @@ The tree-sitter result is syntax-only. It does not claim Swift type-checking, iO
    missing manifest bundle assertion.
 2. **Core ML resource gate:** the reported run proves `GolfBall.mlmodelc` compilation and bundling. The corrected
    workflow must still prove `ModelManifest.json` is copied to the app bundle.
-3. **Signing/App Store Connect:** supply the private Codemagic integration and `BUNDLE_ID` externally. No key,
-   certificate, provisioning profile, team ID, or `.p8` belongs in Git.
+3. **Signing/App Store Connect:** the release Bundle ID is fixed as `com.yamsotaro.golfballfinder`; the Developer
+   Portal integration is referenced as `GolfBallFinder Codemagic`. The numeric `APP_STORE_APPLE_ID` remains an
+   external Codemagic variable, and signing identities remain in Codemagic. No key, certificate, provisioning
+   profile, team ID, or `.p8` belongs in Git.
 4. **Physical iPhone gate:** camera permission, preview orientation/aspect fill, overlay alignment, 1x/2x behavior,
    offline model load, feedback transition, Color Assist tile benefit/cost, latency, thermal behavior, and battery
    remain device-only.
@@ -85,8 +87,8 @@ The tree-sitter result is syntax-only. It does not claim Swift type-checking, iO
 
 1. Push the current revision to the intended private Git remote and run unsigned `ios-model-compile-check`.
 2. Fix any exact Core ML/Xcode/Ultralytics API or concurrency diagnostics from that run; do not proceed on a red gate.
-3. After Apple approval, configure the external Apple/Codemagic values and run `ios-testflight`; keep automatic TestFlight submission off
-   for the first signing diagnosis, then enable it if desired after the IPA upload is confirmed.
+3. Configure the Codemagic signing identities and numeric `APP_STORE_APPLE_ID`, then run `ios-testflight`; the
+   workflow verifies the signed IPA before uploading it and submitting it to TestFlight.
 4. Install the processed internal build on iPhone 16 Pro and execute `FIELD_TEST_PLAN.md`.
 5. Record at least 30 positive and 10 one-minute negative-only scenes, then train/fine-tune against actual misses and hard
    negatives before tuning thresholds or adding a second-stage verifier.

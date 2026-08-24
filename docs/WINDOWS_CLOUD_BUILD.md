@@ -38,8 +38,8 @@ A TestFlight build can be installed on the iPhone using Apple's TestFlight app. 
 ## One-time Apple setup
 
 1. Enroll the Apple Account used for this project in Apple Developer Program.
-2. In Certificates, Identifiers & Profiles, create an explicit App ID / Bundle ID, for example:
-   `com.<yourname>.golfballfinder`
+2. In Certificates, Identifiers & Profiles, create the explicit App ID / Bundle ID:
+   `com.yamsotaro.golfballfinder`
 3. In App Store Connect, create a new iOS app record using exactly that Bundle ID.
 4. In App Store Connect > Users and Access > Integrations, create an App Store Connect API key with the
    `App Manager` role required by Codemagic publishing. Download the `.p8` file once and keep it secure.
@@ -53,18 +53,22 @@ Do not commit the `.p8` key or any Apple credential to Git.
 2. Create a Codemagic account and add the GitHub repository.
 3. In Codemagic Team settings > Developer Portal, add the App Store Connect API key. Give the integration the exact reference name:
 
-   `golfballfinder-appstore`
+   `GolfBallFinder Codemagic`
 
-4. Let Codemagic create/manage an Apple Distribution certificate if prompted.
+4. In Team settings > codemagic.yaml settings > Code signing identities, generate/fetch and retain an Apple
+   Distribution certificate and an App Store provisioning profile for `com.yamsotaro.golfballfinder`. The
+   `ios_signing` block fetches those identities by distribution type and Bundle ID; `xcode-project use-profiles`
+   applies the profile before archive/export.
 5. In Codemagic environment variables create a group named:
 
    `golfballfinder_config`
 
-6. Add:
+6. Add the non-secret numeric Apple ID shown in App Store Connect > General > App Information:
 
-   `BUNDLE_ID = com.<yourname>.golfballfinder`
+   `APP_STORE_APPLE_ID = <numeric Apple ID>`
 
-   Use the exact Bundle ID registered with Apple.
+   The release Bundle ID is deliberately fixed in `project.yml` and `codemagic.yaml`; it is not supplied by a
+   mutable secret variable. Issuer ID, Key ID, and `.p8` contents remain only in the Developer Portal integration.
 
 ## First cloud run
 
@@ -96,26 +100,20 @@ After Apple Developer approval and private integration setup, run `ios-testfligh
 
 The signed workflow:
 
-1. applies the Bundle ID and Codemagic's monotonically increasing build number;
+1. requires `com.yamsotaro.golfballfinder` and asks App Store Connect for the highest existing App Store/TestFlight
+   build number across versions, then uses that value plus one;
 2. creates the Core ML seed model in the Mac runner if `GolfBall.mlpackage` is not already in the repository;
 3. records the checkpoint hash/export tool versions in `ModelManifest.json`;
-4. generates the Xcode project and runs unit tests;
-5. resolves UltralyticsYOLO;
-6. fetches/creates App Store signing files;
-7. creates a signed `.ipa` with the required App Icon.
+4. generates the Xcode project, rejects any development Bundle ID, resolves UltralyticsYOLO, and runs unit tests;
+5. fetches the matching `app_store` signing identities configured in Codemagic and applies the provisioning profile;
+6. archives and exports the signed `.ipa`, which invokes Xcode's Core ML compiler for the generated model;
+7. opens the IPA and verifies its Bundle ID/build number, distribution signature, embedded profile, compiled
+   `GolfBall.mlmodelc`, and `ModelManifest.json`;
+8. uploads it with `auth: integration` and runs the `submit_to_testflight: true` post-processing action. It does not
+   submit the application to App Store review (`submit_to_app_store: false`).
 
-For the very first build, `codemagic.yaml` intentionally has automatic TestFlight submission disabled (`submit_to_testflight: false`). This makes first-time App Store Connect configuration easier to diagnose. Once the IPA upload path is confirmed, set:
-
-```yaml
-submit_to_testflight: true
-```
-
-or upload the generated signed build using the configured Codemagic publishing integration.
-
-`auth: integration` uploads the IPA to App Store Connect. `submit_to_testflight` controls the optional
-post-processing submission action; internal testers can use the uploaded build after App Store Connect processing
-and internal-group assignment. Enable the flag after the first upload path is confirmed if you want that action
-automated.
+TestFlight post-processing occurs after the IPA upload. Apple may still require export-compliance or beta metadata
+in App Store Connect before tester assignment completes.
 
 ## Internal TestFlight use
 

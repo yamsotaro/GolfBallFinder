@@ -19,7 +19,9 @@ requires `ModelManifest.json` in the application target's Resources phase, then 
 compilation operation in a clean Xcode build log before checking both resources in the bundle.
 The lightweight model-free workflow uses `project.compile-check.yml`; the full `project.yml` deliberately requires
 the exported model and manifest. Neither workflow needs Apple signing. `ios-testflight` repeats the model/export/test
-path, assigns a unique build number, signs the IPA, and uploads it to App Store Connect. Full setup:
+path with the fixed release Bundle ID `com.yamsotaro.golfballfinder`, selects the next build number from existing
+App Store Connect/TestFlight builds, signs with Codemagic-managed App Store signing identities, verifies the finished
+IPA (identifier, profile, distribution signature, compiled model), uploads it, and submits it to TestFlight. Full setup:
 `docs/WINDOWS_CLOUD_BUILD.md`.
 
 The final app still runs AI inference locally on the iPhone; the cloud Mac is only a build/signing machine.

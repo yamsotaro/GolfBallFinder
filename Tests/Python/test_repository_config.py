@@ -20,12 +20,15 @@ sys.path.insert(0, str(ROOT))
 from scripts import configure_bundle_id, validate_xcode_model_registration  # noqa: E402
 
 
+RELEASE_BUNDLE_ID = "com.yamsotaro.golfballfinder"
+
+
 PROJECT_TEMPLATE = """\
 targets:
   GolfBallFinder:
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.local.GolfBallFinder
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.placeholder
         CURRENT_PROJECT_VERSION: 1
 """
 
@@ -51,13 +54,13 @@ class ConfigureBundleIDTests(unittest.TestCase):
             output = self.run_configure(
                 project,
                 "--bundle-id",
-                "com.example.golfballfinder",
+                RELEASE_BUNDLE_ID,
                 "--build-number",
                 "42",
             )
 
             updated = project.read_text(encoding="utf-8")
-            self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: com.example.golfballfinder", updated)
+            self.assertIn(f"PRODUCT_BUNDLE_IDENTIFIER: {RELEASE_BUNDLE_ID}", updated)
             self.assertIn("CURRENT_PROJECT_VERSION: 42", updated)
             self.assertIn("Configured build number: 42", output)
 
@@ -80,9 +83,25 @@ class ConfigureBundleIDTests(unittest.TestCase):
                 self.run_configure(
                     project,
                     "--bundle-id",
-                    "com.example.golfballfinder",
+                    RELEASE_BUNDLE_ID,
                     "--build-number",
                     "0",
+                )
+
+            self.assertEqual(project.read_text(encoding="utf-8"), PROJECT_TEMPLATE)
+
+    def test_rejects_noncanonical_release_bundle_identifier(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory) / "project.yml"
+            project.write_text(PROJECT_TEMPLATE, encoding="utf-8")
+
+            with self.assertRaises(SystemExit):
+                self.run_configure(
+                    project,
+                    "--bundle-id",
+                    "com.example.golfballfinder",
+                    "--build-number",
+                    "42",
                 )
 
             self.assertEqual(project.read_text(encoding="utf-8"), PROJECT_TEMPLATE)
@@ -103,6 +122,41 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertIn("ios-compile-check", codemagic["workflows"])
         self.assertIn("ios-model-compile-check", codemagic["workflows"])
         self.assertIn("ios-testflight", codemagic["workflows"])
+
+    def test_release_bundle_id_is_canonical_across_signed_sources(self) -> None:
+        project = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))
+        target = project["targets"]["GolfBallFinder"]
+        settings = target["settings"]["base"]
+        properties = target["info"]["properties"]
+        self.assertEqual(settings["PRODUCT_BUNDLE_IDENTIFIER"], RELEASE_BUNDLE_ID)
+        self.assertEqual(properties["CFBundleIdentifier"], "$(PRODUCT_BUNDLE_IDENTIFIER)")
+        self.assertEqual(properties["CFBundleVersion"], "$(CURRENT_PROJECT_VERSION)")
+        self.assertNotIn("dev.local", (ROOT / "project.yml").read_text(encoding="utf-8"))
+        self.assertEqual(configure_bundle_id.RELEASE_BUNDLE_ID, RELEASE_BUNDLE_ID)
+
+        workflow = yaml.safe_load((ROOT / "codemagic.yaml").read_text(encoding="utf-8"))[
+            "workflows"
+        ]["ios-testflight"]
+        self.assertEqual(
+            workflow["integrations"]["app_store_connect"],
+            "GolfBallFinder Codemagic",
+        )
+        self.assertEqual(workflow["environment"]["vars"]["BUNDLE_ID"], RELEASE_BUNDLE_ID)
+        self.assertEqual(
+            workflow["environment"]["ios_signing"],
+            {
+                "distribution_type": "app_store",
+                "bundle_identifier": RELEASE_BUNDLE_ID,
+            },
+        )
+
+        scripts = "\n".join(step["script"] for step in workflow["scripts"])
+        self.assertIn("Release Bundle ID mismatch", scripts)
+        self.assertIn("xcodebuild -showBuildSettings", scripts)
+        self.assertIn("CFBundleIdentifier", scripts)
+        self.assertIn("embedded.mobileprovision", scripts)
+        self.assertIn("GolfBall.mlmodelc", scripts)
+        self.assertNotIn("dev.local.GolfBallFinder", scripts)
 
     def test_coreml_package_is_a_target_source_not_a_copied_directory(self) -> None:
         project = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))
@@ -191,8 +245,49 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertIn("build/model-compile-derived", scripts)
 
     def test_release_workflow_sets_unique_build_number(self) -> None:
-        text = (ROOT / "codemagic.yaml").read_text(encoding="utf-8")
-        self.assertIn('--build-number "$BUILD_NUMBER"', text)
+        workflow = yaml.safe_load((ROOT / "codemagic.yaml").read_text(encoding="utf-8"))[
+            "workflows"
+        ]["ios-testflight"]
+        scripts = "\n".join(step["script"] for step in workflow["scripts"])
+        self.assertIn("APP_STORE_APPLE_ID", scripts)
+        self.assertIn("get-latest-build-number", scripts)
+        self.assertIn("--all-versions", scripts)
+        self.assertIn('APP_BUILD_NUMBER="$NEXT_BUILD_NUMBER"', scripts)
+        self.assertIn('--build-number "$APP_BUILD_NUMBER"', scripts)
+
+    def test_release_workflow_signs_and_publishes_to_testflight(self) -> None:
+        workflow = yaml.safe_load((ROOT / "codemagic.yaml").read_text(encoding="utf-8"))[
+            "workflows"
+        ]["ios-testflight"]
+        step_names = [step["name"] for step in workflow["scripts"]]
+        self.assertLess(
+            step_names.index("Prepare seed Core ML model if no model is committed"),
+            step_names.index("Generate Xcode project"),
+        )
+        self.assertLess(
+            step_names.index("Generate Xcode project"),
+            step_names.index("Run unit tests on an available iPhone simulator"),
+        )
+        self.assertLess(
+            step_names.index("Apply provisioning profiles"),
+            step_names.index("Build signed IPA"),
+        )
+        self.assertLess(
+            step_names.index("Build signed IPA"),
+            step_names.index("Verify signed IPA identifiers and compiled model"),
+        )
+        scripts = "\n".join(step["script"] for step in workflow["scripts"])
+        self.assertIn("xcode-project use-profiles", scripts)
+        self.assertIn("xcode-project build-ipa", scripts)
+        self.assertEqual(
+            workflow["publishing"]["app_store_connect"]["auth"], "integration"
+        )
+        self.assertTrue(
+            workflow["publishing"]["app_store_connect"]["submit_to_testflight"]
+        )
+        self.assertFalse(
+            workflow["publishing"]["app_store_connect"]["submit_to_app_store"]
+        )
 
     def test_app_icon_is_configured(self) -> None:
         project = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))

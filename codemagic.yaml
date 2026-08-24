@@ -194,26 +194,63 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
 
-    # In Codemagic > Team settings > Developer Portal, create an App Store
-    # Connect integration with exactly this reference name.
+    # This is the exact App Store Connect API key name already configured in
+    # Codemagic > Team settings > Developer Portal.
     integrations:
-      app_store_connect: golfballfinder-appstore
+      app_store_connect: "GolfBallFinder Codemagic"
 
     environment:
-      # Create this variable group in Codemagic:
-      #   BUNDLE_ID = your globally unique id, e.g. com.example.golfballfinder
+      # Codemagic fetches the matching Apple Distribution certificate and App
+      # Store provisioning profile from Team > Code signing identities.
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.yamsotaro.golfballfinder
+      # Create this group with the non-secret numeric APP_STORE_APPLE_ID from
+      # App Store Connect > General > App Information > Apple ID. API key
+      # credentials remain exclusively in the Developer Portal integration.
       groups:
         - golfballfinder_config
+      vars:
+        BUNDLE_ID: com.yamsotaro.golfballfinder
       xcode: latest
 
     scripts:
       - name: Validate cloud configuration
         script: |
           set -euo pipefail
-          test -n "$BUNDLE_ID" || { echo "BUNDLE_ID is missing in group golfballfinder_config"; exit 2; }
-          test -n "$BUILD_NUMBER" || { echo "Codemagic BUILD_NUMBER is missing"; exit 2; }
+          test "$BUNDLE_ID" = "com.yamsotaro.golfballfinder" || {
+            echo "Release Bundle ID mismatch: expected com.yamsotaro.golfballfinder, got $BUNDLE_ID"
+            exit 2
+          }
+          case "${APP_STORE_APPLE_ID:-}" in
+            ''|*[!0-9]*)
+              echo "APP_STORE_APPLE_ID must be the numeric Apple ID in group golfballfinder_config"
+              exit 2
+              ;;
+          esac
           echo "Building bundle id: $BUNDLE_ID"
-          echo "App Store build number: $BUILD_NUMBER"
+
+      - name: Select next App Store Connect build number
+        script: |
+          set -euo pipefail
+          LATEST_BUILD_NUMBER="$(app-store-connect get-latest-build-number \
+            --platform IOS \
+            --all-versions \
+            "$APP_STORE_APPLE_ID")"
+          if [ -z "$LATEST_BUILD_NUMBER" ]; then
+            LATEST_BUILD_NUMBER=0
+          fi
+          case "$LATEST_BUILD_NUMBER" in
+            *[!0-9]*)
+              echo "Unexpected latest App Store Connect build number: $LATEST_BUILD_NUMBER"
+              exit 2
+              ;;
+          esac
+          NEXT_BUILD_NUMBER="$((LATEST_BUILD_NUMBER + 1))"
+          APP_BUILD_NUMBER="$NEXT_BUILD_NUMBER"
+          echo "APP_BUILD_NUMBER=$APP_BUILD_NUMBER" >> "$CM_ENV"
+          echo "Latest uploaded build: $LATEST_BUILD_NUMBER"
+          echo "Selected build number: $APP_BUILD_NUMBER"
 
       - name: Install XcodeGen and Python 3.11
         script: |
@@ -228,7 +265,7 @@ workflows:
           set -euo pipefail
           python3 scripts/configure_bundle_id.py \
             --bundle-id "$BUNDLE_ID" \
-            --build-number "$BUILD_NUMBER"
+            --build-number "$APP_BUILD_NUMBER"
 
       - name: Prepare seed Core ML model if no model is committed
         script: |
@@ -256,6 +293,11 @@ workflows:
         script: |
           set -euo pipefail
           xcodegen generate
+          if grep -R -n "dev\.local\.GolfBallFinder" \
+            project.yml GolfBallFinder.xcodeproj GolfBallFinder/Info.plist; then
+            echo "Development Bundle ID leaked into the generated release project"
+            exit 4
+          fi
           python3 scripts/validate_xcode_model_registration.py \
             --pbxproj GolfBallFinder.xcodeproj/project.pbxproj \
             --target GolfBallFinder \
@@ -270,6 +312,32 @@ workflows:
           xcodebuild -resolvePackageDependencies \
             -project GolfBallFinder.xcodeproj \
             -scheme GolfBallFinder
+
+      - name: Verify generated release identifiers
+        script: |
+          set -euo pipefail
+          BUILD_SETTINGS="$(xcodebuild -showBuildSettings \
+            -project GolfBallFinder.xcodeproj \
+            -target GolfBallFinder \
+            -configuration Release)"
+          GENERATED_BUNDLE_ID="$(printf '%s\n' "$BUILD_SETTINGS" | \
+            awk -F ' = ' '/^[[:space:]]*PRODUCT_BUNDLE_IDENTIFIER = / { print $2; exit }')"
+          GENERATED_BUILD_NUMBER="$(printf '%s\n' "$BUILD_SETTINGS" | \
+            awk -F ' = ' '/^[[:space:]]*CURRENT_PROJECT_VERSION = / { print $2; exit }')"
+          test "$GENERATED_BUNDLE_ID" = "$BUNDLE_ID" || {
+            echo "Release Bundle ID mismatch in generated build settings: $GENERATED_BUNDLE_ID"
+            exit 4
+          }
+          test "$GENERATED_BUILD_NUMBER" = "$APP_BUILD_NUMBER" || {
+            echo "Release build number mismatch in generated build settings: $GENERATED_BUILD_NUMBER"
+            exit 4
+          }
+          PLIST_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' GolfBallFinder/Info.plist)"
+          test "$PLIST_BUNDLE_ID" = '$(PRODUCT_BUNDLE_IDENTIFIER)' || {
+            echo "Generated Info.plist does not defer CFBundleIdentifier to PRODUCT_BUNDLE_IDENTIFIER"
+            exit 4
+          }
+          echo "Verified generated release identifiers: $GENERATED_BUNDLE_ID ($GENERATED_BUILD_NUMBER)"
 
       - name: Run unit tests on an available iPhone simulator
         script: |
@@ -289,19 +357,6 @@ workflows:
             -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Initialize signing keychain
-        script: keychain initialize
-
-      - name: Fetch/create App Store signing files
-        script: |
-          set -euo pipefail
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE \
-            --create
-
-      - name: Add signing certificate
-        script: keychain add-certificates
-
       - name: Apply provisioning profiles
         script: xcode-project use-profiles --project "$CM_BUILD_DIR/GolfBallFinder.xcodeproj"
 
@@ -312,6 +367,65 @@ workflows:
             --project "$CM_BUILD_DIR/GolfBallFinder.xcodeproj" \
             --scheme GolfBallFinder
 
+      - name: Verify signed IPA identifiers and compiled model
+        script: |
+          set -euo pipefail
+          IPA_PATH="$(find build/ios/ipa -type f -name '*.ipa' -print -quit)"
+          test -n "$IPA_PATH" || { echo "Signed IPA was not produced"; exit 5; }
+          VERIFY_DIR="$(mktemp -d)"
+          trap 'rm -rf "$VERIFY_DIR"' EXIT
+          unzip -q "$IPA_PATH" -d "$VERIFY_DIR"
+          APP_PATH="$(find "$VERIFY_DIR/Payload" -mindepth 1 -maxdepth 1 \
+            -type d -name '*.app' -print -quit)"
+          test -n "$APP_PATH" || { echo "Application bundle is missing from IPA"; exit 5; }
+
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+          IPA_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist")"
+          IPA_BUILD_NUMBER="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PATH/Info.plist")"
+          test "$IPA_BUNDLE_ID" = "$BUNDLE_ID" || {
+            echo "Signed IPA Bundle ID mismatch: $IPA_BUNDLE_ID"
+            exit 5
+          }
+          test "$IPA_BUILD_NUMBER" = "$APP_BUILD_NUMBER" || {
+            echo "Signed IPA build number mismatch: $IPA_BUILD_NUMBER"
+            exit 5
+          }
+          if grep -R -a -q "dev\.local\.GolfBallFinder" "$APP_PATH"; then
+            echo "Development Bundle ID is present in the signed application bundle"
+            exit 5
+          fi
+
+          security cms -D -i "$APP_PATH/embedded.mobileprovision" > "$VERIFY_DIR/profile.plist"
+          PROFILE_APP_ID="$(/usr/libexec/PlistBuddy \
+            -c 'Print :Entitlements:application-identifier' "$VERIFY_DIR/profile.plist")"
+          case "$PROFILE_APP_ID" in
+            *."$BUNDLE_ID") ;;
+            *)
+              echo "Provisioning profile does not match $BUNDLE_ID: $PROFILE_APP_ID"
+              exit 5
+              ;;
+          esac
+          SIGNING_AUTHORITY="$(codesign -dvv "$APP_PATH" 2>&1 | \
+            sed -n 's/^Authority=//p' | head -n 1)"
+          case "$SIGNING_AUTHORITY" in
+            "Apple Distribution:"*|"iPhone Distribution:"*) ;;
+            *)
+              echo "Unexpected distribution signing authority: $SIGNING_AUTHORITY"
+              exit 5
+              ;;
+          esac
+
+          MODEL_PATH="$(find "$APP_PATH" -type d -name GolfBall.mlmodelc -print -quit)"
+          test -n "$MODEL_PATH" || { echo "GolfBall.mlmodelc is missing from signed IPA"; exit 5; }
+          test -f "$APP_PATH/ModelManifest.json" || {
+            echo "ModelManifest.json is missing from signed IPA"
+            exit 5
+          }
+          echo "Verified signed IPA: $IPA_BUNDLE_ID ($IPA_BUILD_NUMBER)"
+          echo "Verified provisioning profile: $PROFILE_APP_ID"
+          echo "Verified signing authority: $SIGNING_AUTHORITY"
+          echo "Verified compiled model: $MODEL_PATH"
+
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
@@ -320,5 +434,5 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        submit_to_testflight: false
+        submit_to_testflight: true
         submit_to_app_store: false

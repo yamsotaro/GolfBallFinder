@@ -15,7 +15,7 @@ successful checks for both `GolfBall.mlmodelc` and top-level `ModelManifest.json
 ## 2. Apple Developer and App Store Connect
 
 1. Accept any current Apple Developer Program agreements and finish enrollment.
-2. Register a unique explicit Bundle ID, for example `com.<owner>.golfballfinder`.
+2. Register the explicit Bundle ID `com.yamsotaro.golfballfinder`.
 3. Create the iOS app record in App Store Connect with exactly that Bundle ID and the app name/primary language.
 4. In App Store Connect Users and Access > Integrations, create an API key with the minimum role Codemagic needs
    for signing/upload (normally App Manager for this workflow).
@@ -26,15 +26,20 @@ successful checks for both `GolfBall.mlmodelc` and top-level `ModelManifest.json
 
 ## 3. Codemagic private configuration
 
-1. In Team settings > Developer Portal, add the App Store Connect API integration using the reference name
-   `golfballfinder-appstore` expected by `codemagic.yaml`.
+1. In Team settings > Developer Portal, add the App Store Connect API integration using the exact reference name
+   `GolfBallFinder Codemagic` expected by `codemagic.yaml`.
 2. Create the protected variable group `golfballfinder_config`.
-3. Add `BUNDLE_ID` with the exact registered identifier. Do not store it by editing source for a one-off build.
-4. Allow Codemagic to create/fetch an Apple Distribution certificate and App Store provisioning profile.
-5. Run `ios-testflight`. Confirm its unit tests pass before the signing steps and that the model manifest in the build
-   has the expected checkpoint SHA.
-6. For the first signed diagnosis, leave `submit_to_testflight: false`. Confirm the generated IPA and App Store
-   Connect upload path, then enable automatic TestFlight submission if desired.
+3. Add only `APP_STORE_APPLE_ID`, using the non-secret numeric Apple ID in App Store Connect > General > App
+   Information. The Bundle ID is fixed in source as `com.yamsotaro.golfballfinder` and the workflow rejects any
+   mismatch.
+4. In Team settings > codemagic.yaml settings > Code signing identities, make sure an Apple Distribution certificate
+   and App Store provisioning profile for `com.yamsotaro.golfballfinder` are available. Generate/fetch them through
+   Codemagic using the configured Developer Portal integration; do not commit exported signing files.
+5. Run `ios-testflight`. Confirm unit tests pass, then confirm the final IPA verification logs show the expected
+   Bundle ID, the selected App Store build number, matching profile, Apple Distribution authority,
+   `GolfBall.mlmodelc`, and `ModelManifest.json`.
+6. `auth: integration` uploads the IPA and `submit_to_testflight: true` requests TestFlight post-processing. Resolve
+   any export-compliance or beta metadata prompt in App Store Connect if Apple requires it.
 
 If signing fails, compare Bundle ID, Team, App Store app record, certificate type, profile type, API-key role, and
 unaccepted agreements. Do not “fix” signing by committing exported credentials.

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Set release identifiers in the XcodeGen configuration without requiring a Mac.
+"""Set canonical release identifiers in XcodeGen config without requiring a Mac.
 
-Used by cloud CI before `xcodegen generate`, and can also be run manually.
+This repository has one signed product. Unsigned workflows may use their own
+temporary project overlay, but this release helper refuses any other Bundle ID.
 """
 from __future__ import annotations
 
@@ -10,13 +11,16 @@ import re
 from pathlib import Path
 
 
+RELEASE_BUNDLE_ID = "com.yamsotaro.golfballfinder"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bundle-id", required=True)
     parser.add_argument(
         "--build-number",
         type=int,
-        help="Positive App Store build number (normally Codemagic BUILD_NUMBER).",
+        help="Positive build number selected from App Store Connect history.",
     )
     parser.add_argument("--project", default="project.yml")
     args = parser.parse_args()
@@ -24,6 +28,10 @@ def main() -> None:
     bundle_id = args.bundle_id.strip()
     if not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", bundle_id):
         raise SystemExit(f"Invalid reverse-DNS bundle identifier: {bundle_id!r}")
+    if bundle_id != RELEASE_BUNDLE_ID:
+        raise SystemExit(
+            f"Release Bundle ID must be {RELEASE_BUNDLE_ID!r}, got {bundle_id!r}"
+        )
     if args.build_number is not None and args.build_number < 1:
         raise SystemExit("Build number must be a positive integer")
 
