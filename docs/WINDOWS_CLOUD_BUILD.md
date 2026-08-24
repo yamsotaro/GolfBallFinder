@@ -80,6 +80,11 @@ the public seed `.pt`, verifies its fixed SHA256, exports `GolfBall.mlpackage`, 
 that Xcode compiled `GolfBall.mlmodelc` plus `ModelManifest.json` into `GolfBallFinder.app`. Run this while Apple
 Developer approval is pending; it isolates model/export/resource errors from later signing errors.
 
+Before Xcode project generation, the model workflows run `scripts/inspect_coreml_model.py` against
+the generated package. It prints the actual Core ML input/output names, data types, and shapes and
+rejects anything other than the pinned one-class raw YOLO contract. The same data is stored in
+bundled `ModelManifest.json`; do not infer an output feature name from a prior export.
+
 The model must be declared as an individual target `source` in `project.yml`. XcodeGen 2.38.0 or newer recognizes
 `.mlpackage` as a source type; the spec explicitly sets `buildPhase: sources` so it is placed in the application
 target's `PBXSourcesBuildPhase`, allowing Xcode's standard Core ML build pipeline to produce `.mlmodelc`. Declaring

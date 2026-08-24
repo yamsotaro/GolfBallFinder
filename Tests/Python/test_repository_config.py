@@ -238,6 +238,8 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertIn("--resource ModelManifest.json", scripts)
         self.assertIn("--resource PrivacyInfo.xcprivacy", scripts)
         self.assertIn("manifest_path.is_file()", scripts)
+        self.assertIn("inspect_coreml_model.py", scripts)
+        self.assertIn('manifest["coreml_spec"]', scripts)
         self.assertIn("coremlcompiler", scripts)
         self.assertIn("-name '*.mlmodelc'", scripts)
         self.assertIn("-name '*.json'", scripts)
@@ -262,6 +264,10 @@ class RepositoryConfigurationTests(unittest.TestCase):
         step_names = [step["name"] for step in workflow["scripts"]]
         self.assertLess(
             step_names.index("Prepare seed Core ML model if no model is committed"),
+            step_names.index("Inspect and validate actual Core ML output contract"),
+        )
+        self.assertLess(
+            step_names.index("Inspect and validate actual Core ML output contract"),
             step_names.index("Generate Xcode project"),
         )
         self.assertLess(
@@ -338,6 +344,7 @@ class RepositoryConfigurationTests(unittest.TestCase):
             "effectiveInferenceFPS",
             "thermalState",
             "detectionConfidence",
+            "detectionSource",
             "scanMode",
             "candidateToConfirmedMs",
             "sceneStartToConfirmedMs",

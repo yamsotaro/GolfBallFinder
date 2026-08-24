@@ -46,6 +46,7 @@ struct ColorAssistAnalysis: @unchecked Sendable {
 /// This component is deliberately separate from GolfBallDetector. Its output is metadata and a
 /// tile order only; detector input remains the original raw RGB CIImage/crop.
 final class ColorAssistEngine {
+    private static let debugPreviewColorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
     private static let luminanceKernel = CIColorKernel(source: """
         kernel vec4 luminanceMap(__sample pixel) {
             float value = dot(pixel.rgb, vec3(0.2126, 0.7152, 0.0722));
@@ -137,9 +138,9 @@ final class ColorAssistEngine {
 
         let preview: ColorAssistPreview?
         if includePreview,
-           let rawImage = context.createCGImage(raw, from: raw.extent),
-           let contrastImage = context.createCGImage(golfContrast, from: golfContrast.extent),
-           let saliencyImage = context.createCGImage(saliency, from: saliency.extent) {
+           let rawImage = makeDebugPreview(from: raw),
+           let contrastImage = makeDebugPreview(from: golfContrast),
+           let saliencyImage = makeDebugPreview(from: saliency) {
             preview = ColorAssistPreview(
                 raw: rawImage,
                 golfContrast: contrastImage,
@@ -184,6 +185,17 @@ final class ColorAssistEngine {
 
     private func apply(_ kernel: CIColorKernel?, to image: CIImage) -> CIImage? {
         kernel?.apply(extent: image.extent, arguments: [image])
+    }
+
+    /// Materialize diagnostics-only images with an explicit RGBA byte order and sRGB output
+    /// profile. The camera/YOLO CIImage is never replaced or rendered through this path.
+    private func makeDebugPreview(from image: CIImage) -> CGImage? {
+        context.createCGImage(
+            image,
+            from: image.extent,
+            format: .RGBA8,
+            colorSpace: Self.debugPreviewColorSpace
+        )
     }
 
     private func score(map: CIImage, normalizedTopLeft region: CGRect) -> Double {

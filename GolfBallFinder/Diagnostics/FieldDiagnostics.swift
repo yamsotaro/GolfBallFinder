@@ -77,6 +77,7 @@ struct FieldDiagnosticRecord: Codable, Equatable, Sendable {
     let thermalState: String
     let detectionConfidence: Float?
     let scanMode: String?
+    let detectionSource: String?
     let colorAssistRequested: Bool
     let colorAssistEnabled: Bool
     let colorAssistFilterMode: String
@@ -119,6 +120,82 @@ struct InferenceRateMeter: Sendable {
     }
 }
 
+/// Keeps wall-clock scene timing separate from camera presentation timestamps. Candidate latency
+/// comes from one spatial track in `DetectionStabilizer`; unrelated candidates cannot inherit it.
+struct DetectionTimingState: Equatable, Sendable {
+    private(set) var candidateTrackStartedAt: TimeInterval?
+    private(set) var sceneBeganAt: TimeInterval?
+    private(set) var sceneStartToFirstCandidateMs: Double?
+    private(set) var candidateToConfirmedMs: Double?
+    private(set) var sceneStartToConfirmedMs: Double?
+    private(set) var previousWasFound = false
+
+    mutating func beginScene(at wallTime: TimeInterval) {
+        sceneBeganAt = wallTime
+        clearDetectionTiming()
+    }
+
+    mutating func endScene() {
+        sceneBeganAt = nil
+        clearDetectionTiming()
+    }
+
+    /// A manual re-search starts a fresh timing window for an active field scene.
+    mutating func resetSearch(at wallTime: TimeInterval, sceneIsActive: Bool) {
+        sceneBeganAt = sceneIsActive ? wallTime : nil
+        clearDetectionTiming()
+    }
+
+    @discardableResult
+    mutating func update(
+        state: FinderState,
+        candidateTrackStartedAt newTrackStartedAt: TimeInterval?,
+        confirmationLatencyMs newConfirmationLatencyMs: Double?,
+        at wallTime: TimeInterval
+    ) -> Bool {
+        switch state {
+        case .candidate:
+            if candidateTrackStartedAt != newTrackStartedAt {
+                candidateToConfirmedMs = nil
+            }
+            candidateTrackStartedAt = newTrackStartedAt
+            recordFirstCandidateIfNeeded(at: wallTime)
+            previousWasFound = false
+            return false
+        case .found:
+            candidateTrackStartedAt = newTrackStartedAt ?? candidateTrackStartedAt
+            recordFirstCandidateIfNeeded(at: wallTime)
+            let isNewConfirmation = !previousWasFound
+            if isNewConfirmation {
+                candidateToConfirmedMs = newConfirmationLatencyMs
+                if let sceneBeganAt {
+                    sceneStartToConfirmedMs = max(0, (wallTime - sceneBeganAt) * 1_000)
+                }
+            }
+            previousWasFound = true
+            return isNewConfirmation
+        case .scanning, .loading, .paused, .error:
+            candidateTrackStartedAt = nil
+            candidateToConfirmedMs = nil
+            previousWasFound = false
+            return false
+        }
+    }
+
+    private mutating func recordFirstCandidateIfNeeded(at wallTime: TimeInterval) {
+        guard sceneStartToFirstCandidateMs == nil, let sceneBeganAt else { return }
+        sceneStartToFirstCandidateMs = max(0, (wallTime - sceneBeganAt) * 1_000)
+    }
+
+    private mutating func clearDetectionTiming() {
+        candidateTrackStartedAt = nil
+        sceneStartToFirstCandidateMs = nil
+        candidateToConfirmedMs = nil
+        sceneStartToConfirmedMs = nil
+        previousWasFound = false
+    }
+}
+
 private struct ModelIdentity: Decodable {
     let checkpointSHA256: String?
 
@@ -152,6 +229,7 @@ final class FieldDiagnosticsStore: ObservableObject {
     @Published private(set) var targetInferenceFPS: Double = AppConfig.processedFPS
     @Published private(set) var thermalState = ProcessInfo.processInfo.thermalState.diagnosticName
     @Published private(set) var detectionConfidence: Float?
+    @Published private(set) var detectionSource: String?
     @Published private(set) var hasRecentDetection = false
     @Published private(set) var hasRecentConfirmedDetection = false
     @Published private(set) var scanMode = ScanSource.fullFrame.rawValue
@@ -188,10 +266,8 @@ final class FieldDiagnosticsStore: ObservableObject {
     private let buildNumber: String
     private var rateMeter = InferenceRateMeter()
     private var lastSampleLoggedAt: TimeInterval?
-    private var candidateBeganAt: TimeInterval?
-    private var sceneBeganAt: TimeInterval?
+    private var timing = DetectionTimingState()
     private var recentSceneStartToFirstCandidateMs: Double?
-    private var previousWasFound = false
     private var latestObservation: DetectionObservation?
     private var recentFeedbackObservation: DetectionObservation?
     private var recentFeedbackAt: TimeInterval?
@@ -231,6 +307,8 @@ final class FieldDiagnosticsStore: ObservableObject {
         colorProcessingLatencyMs: Double?,
         tileSaliencyScores: [Double]?,
         selectedTileOrder: [Int],
+        candidateTrackStartedAt: TimeInterval?,
+        confirmationLatencyMs: Double?,
         now: Date = Date()
     ) {
         let time = now.timeIntervalSinceReferenceDate
@@ -257,6 +335,7 @@ final class FieldDiagnosticsStore: ObservableObject {
         latestObservation = observation
         latestDetectionState = state.diagnosticName
         detectionConfidence = observation?.confidence
+        detectionSource = observation?.source.rawValue
         detectedBBox = observation.map { DiagnosticBoundingBox($0.normalizedRect) }
         if let observation {
             recentFeedbackObservation = observation
@@ -274,41 +353,61 @@ final class FieldDiagnosticsStore: ObservableObject {
             recentSceneStartToFirstCandidateMs = nil
         }
 
-        switch state {
-        case .candidate:
-            if candidateBeganAt == nil { candidateBeganAt = time }
-            recordFirstCandidateIfNeeded(at: time)
-            previousWasFound = false
-        case .found:
-            if candidateBeganAt == nil { candidateBeganAt = time }
-            recordFirstCandidateIfNeeded(at: time)
-            let duration = max(0, (time - (candidateBeganAt ?? time)) * 1_000)
-            candidateToConfirmedMs = duration
-            if let sceneBeganAt {
-                sceneStartToConfirmedMs = max(0, (time - sceneBeganAt) * 1_000)
-            }
-            recentCandidateToConfirmedMs = duration
+        let isNewConfirmation = timing.update(
+            state: state,
+            candidateTrackStartedAt: candidateTrackStartedAt,
+            confirmationLatencyMs: confirmationLatencyMs,
+            at: time
+        )
+        sceneStartToFirstCandidateMs = timing.sceneStartToFirstCandidateMs
+        candidateToConfirmedMs = timing.candidateToConfirmedMs
+        sceneStartToConfirmedMs = timing.sceneStartToConfirmedMs
+        if let sceneStartToFirstCandidateMs {
+            recentSceneStartToFirstCandidateMs = sceneStartToFirstCandidateMs
+        }
+
+        if case .found = state {
+            recentCandidateToConfirmedMs = candidateToConfirmedMs
             recentSceneStartToConfirmedMs = sceneStartToConfirmedMs
-            if !previousWasFound {
+            if isNewConfirmation {
                 append(record(
                     kind: .confirmed,
                     now: now,
                     sceneStartToFirstCandidateMs: sceneStartToFirstCandidateMs,
-                    candidateToConfirmedMs: duration,
+                    candidateToConfirmedMs: candidateToConfirmedMs,
                     sceneStartToConfirmedMs: sceneStartToConfirmedMs
                 ))
             }
-            previousWasFound = true
-        case .scanning, .loading, .paused, .error:
-            candidateBeganAt = nil
-            candidateToConfirmedMs = nil
-            previousWasFound = false
         }
 
         if lastSampleLoggedAt.map({ time - $0 >= AppConfig.diagnosticsSampleInterval }) ?? true {
             lastSampleLoggedAt = time
             append(record(kind: .inferenceSample, now: now, candidateToConfirmedMs: candidateToConfirmedMs))
         }
+    }
+
+    /// Clears every detection/timing value owned by diagnostics. Scheduler ROI and stabilizer
+    /// history are reset by CameraController in the same search epoch transition.
+    func resetSearchState(now: Date = Date()) {
+        timing.resetSearch(
+            at: now.timeIntervalSinceReferenceDate,
+            sceneIsActive: activeSceneID != nil
+        )
+        sceneStartToFirstCandidateMs = nil
+        candidateToConfirmedMs = nil
+        sceneStartToConfirmedMs = nil
+        latestObservation = nil
+        recentFeedbackObservation = nil
+        recentFeedbackAt = nil
+        detectionConfidence = nil
+        detectionSource = nil
+        detectedBBox = nil
+        hasRecentDetection = false
+        hasRecentConfirmedDetection = false
+        recentCandidateToConfirmedMs = nil
+        recentSceneStartToConfirmedMs = nil
+        recentSceneStartToFirstCandidateMs = nil
+        latestDetectionState = "scanning"
     }
 
     @discardableResult
@@ -323,15 +422,15 @@ final class FieldDiagnosticsStore: ObservableObject {
         }
         activeSceneID = cleanedID
         activeSceneType = type
-        sceneBeganAt = Date().timeIntervalSinceReferenceDate
-        sceneStartToConfirmedMs = nil
-        sceneStartToFirstCandidateMs = nil
-        candidateBeganAt = nil
-        previousWasFound = false
+        timing.beginScene(at: Date().timeIntervalSinceReferenceDate)
+        sceneStartToConfirmedMs = timing.sceneStartToConfirmedMs
+        sceneStartToFirstCandidateMs = timing.sceneStartToFirstCandidateMs
+        candidateToConfirmedMs = timing.candidateToConfirmedMs
         latestObservation = nil
         recentFeedbackObservation = nil
         recentFeedbackAt = nil
         detectionConfidence = nil
+        detectionSource = nil
         detectedBBox = nil
         hasRecentDetection = false
         hasRecentConfirmedDetection = false
@@ -363,15 +462,15 @@ final class FieldDiagnosticsStore: ObservableObject {
         lastSaveMessage = "Scene \(activeSceneID) を終了しました"
         self.activeSceneID = nil
         activeSceneType = nil
-        sceneBeganAt = nil
-        sceneStartToConfirmedMs = nil
-        sceneStartToFirstCandidateMs = nil
-        candidateBeganAt = nil
-        previousWasFound = false
+        timing.endScene()
+        sceneStartToConfirmedMs = timing.sceneStartToConfirmedMs
+        sceneStartToFirstCandidateMs = timing.sceneStartToFirstCandidateMs
+        candidateToConfirmedMs = timing.candidateToConfirmedMs
         latestObservation = nil
         recentFeedbackObservation = nil
         recentFeedbackAt = nil
         detectionConfidence = nil
+        detectionSource = nil
         detectedBBox = nil
         hasRecentDetection = false
         hasRecentConfirmedDetection = false
@@ -484,6 +583,7 @@ final class FieldDiagnosticsStore: ObservableObject {
                     thermalState: baseRecord.thermalState,
                     detectionConfidence: baseRecord.detectionConfidence,
                     scanMode: baseRecord.scanMode,
+                    detectionSource: baseRecord.detectionSource,
                     colorAssistRequested: baseRecord.colorAssistRequested,
                     colorAssistEnabled: baseRecord.colorAssistEnabled,
                     colorAssistFilterMode: baseRecord.colorAssistFilterMode,
@@ -542,7 +642,7 @@ final class FieldDiagnosticsStore: ObservableObject {
     ) -> FieldDiagnosticRecord {
         let capturedObservation = observation ?? latestObservation
         return FieldDiagnosticRecord(
-            schemaVersion: 2,
+            schemaVersion: 3,
             eventID: eventID,
             sessionID: sessionID,
             sceneID: activeSceneID,
@@ -559,6 +659,7 @@ final class FieldDiagnosticsStore: ObservableObject {
             thermalState: thermalState,
             detectionConfidence: capturedObservation?.confidence,
             scanMode: scanMode,
+            detectionSource: capturedObservation?.source.rawValue,
             colorAssistRequested: colorAssistRequested,
             colorAssistEnabled: colorAssistEnabled,
             colorAssistFilterMode: colorAssistFilterMode,
@@ -590,13 +691,6 @@ final class FieldDiagnosticsStore: ObservableObject {
         case .miss: return "missed_golf_ball"
         default: return "unknown"
         }
-    }
-
-    private func recordFirstCandidateIfNeeded(at time: TimeInterval) {
-        guard sceneStartToFirstCandidateMs == nil, let sceneBeganAt else { return }
-        let duration = max(0, (time - sceneBeganAt) * 1_000)
-        sceneStartToFirstCandidateMs = duration
-        recentSceneStartToFirstCandidateMs = duration
     }
 
     private func updateBallContainingTileRank() {

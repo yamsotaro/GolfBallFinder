@@ -43,6 +43,10 @@ struct ScanScheduler: Sendable {
         activeTileOrder ?? Array(AppConfig.searchTiles.indices)
     }
 
+    mutating func reset() {
+        self = ScanScheduler()
+    }
+
     mutating func nextRegion() -> ScanRegion {
         if let roi = lockedROI, remainingLockFrames > 0 {
             remainingLockFrames -= 1

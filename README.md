@@ -16,7 +16,9 @@ unit tests and an unsigned Xcode compile. `ios-model-compile-check` additionally
 exports `GolfBall.mlpackage`, runs tests/build, and fails unless `GolfBall.mlmodelc` is present in the Simulator app.
 It also inspects the generated `project.pbxproj` to require the model in the application target's Sources phase and
 requires `ModelManifest.json` in the application target's Resources phase, then requires a `coremlcompiler`/Core ML
-compilation operation in a clean Xcode build log before checking both resources in the bundle.
+compilation operation in a clean Xcode build log before checking both resources in the bundle. Both model-bearing
+workflows also inspect the actual `.mlpackage` I/O specification and reject a tensor layout that the pinned iOS SDK
+cannot decode.
 The lightweight model-free workflow uses `project.compile-check.yml`; the full `project.yml` deliberately requires
 the exported model and manifest. Neither workflow needs Apple signing. `ios-testflight` repeats the model/export/test
 path with the fixed release Bundle ID `com.yamsotaro.golfballfinder`, selects the next build number from existing
@@ -65,6 +67,7 @@ Then open the project, choose your Signing Team, select the connected iPhone, an
 - `docs/DATASET_PLAN.md` — capture/annotation/hard-negative plan.
 - `docs/RESEARCH_NOTES.md` — researched technologies, OSS, datasets, licensing.
 - `docs/TEST_PLAN.md` — simulator/unit tests and physical-device field tests.
+- `docs/DEVICE_VALIDATION_2026-08-24.md` — first iPhone 16 Pro measurements and geometry/timing correction.
 - `docs/VALIDATION_REPORT.md` — checks already completed here vs. Apple-toolchain/device gates still required.
 - `docs/AUDIT_REPORT.md` — current Windows audit findings, fixes, validation evidence, and remaining gates.
 - `docs/WINDOWS_CLOUD_BUILD.md` — Windows + hosted macOS + TestFlight deployment with no physical Mac.
@@ -117,7 +120,8 @@ open GolfBallFinder.xcodeproj
 ```
 
 The Core ML export also writes `GolfBallFinder/Resources/ModelManifest.json` with the source checkpoint hash,
-tool versions, input size, and precision. The app reads its checkpoint SHA256 into each field-diagnostics record, so
+tool versions, input size, precision, and the actual package input/output names, types, shapes, and decoder contract.
+The app reads its checkpoint SHA256 into each field-diagnostics record, so
 the model workflow treats the manifest as a required top-level bundle resource. Keep it with field results so model
 comparisons remain reproducible.
 

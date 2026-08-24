@@ -41,6 +41,14 @@ Covered pure logic:
 - confirmation/reset and one-time feedback behavior;
 - every screen edge, oversized/negative ROI clipping, and crop/aspect-fill coordinate edges;
 - inference busy/cadence gating has no pending backlog and accepts fresh frames after camera timestamp reset;
+- raw Core ML `[1, 5, 8400]` output is decoded by the pinned SDK into top-left normalized CGRects;
+- malformed/non-finite/out-of-bounds and extreme-aspect boxes never enter candidate confirmation;
+- the reported `x=0.996 y=0.017 w=0.004 h=0.980` box remains scanning even when repeated;
+- synthetic full-frame, four-corner, edge, overlapping-tile, and near-edge ROI boxes map correctly;
+- portrait aspect-fill overlay geometry preserves top-left origin and places valid boxes correctly;
+- re-search clears candidate/found history, ROI, candidate timing, and restarts an active scene clock;
+- candidate-to-confirmed timing uses only the confirming spatial track, not an earlier unrelated candidate;
+- a synthetic 32BGRA camera buffer renders as RGBA/sRGB in the diagnostics-only Raw preview;
 - thermal policy monotonically reduces target inference FPS.
 - Color Assist OFF preserves the original round-robin order;
 - prioritized cycles remain deterministic and visit all five tiles without starvation;
@@ -69,9 +77,11 @@ xcodebuild \
 5. Place a ball fully visible on grass at ~1m.
 6. Scan slowly; confirm ring, arrow, haptic and beep.
 7. Remove ball and scan for one minute; record confirmed false alerts.
-8. Toggle 2x and repeat.
-9. Cover ~50% of the ball with grass and repeat.
-10. Put a white mushroom/leaf/stone-like distractor in frame and repeat.
+8. Before any accuracy run, move a clearly visible target through center, four corners, and screen edges; verify the ring follows it in full, tile, and ROI modes.
+9. Press Re-search while candidate/found and while ROI is active; verify state returns to scanning and timing fields clear/restart.
+10. Toggle 2x and repeat.
+11. Cover ~50% of the ball with grass and repeat.
+12. Put a white mushroom/leaf/stone-like distractor in frame and repeat.
 
 ## Performance capture
 

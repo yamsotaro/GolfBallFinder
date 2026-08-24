@@ -32,6 +32,52 @@ extension CGRect {
     }
 }
 
+private func finiteComponents(of rect: CGRect) -> Bool {
+    rect.origin.x.isFinite && rect.origin.y.isFinite &&
+        rect.size.width.isFinite && rect.size.height.isFinite
+}
+
+/// Validates the public Ultralytics `Box.xywhn` contract: a top-left-origin normalized CGRect.
+/// Validation deliberately happens before clamping so a wildly out-of-bounds model result cannot
+/// be converted into a plausible-looking sliver at a screen edge.
+func validatedNormalizedTopLeftDetectionRect(
+    _ rect: CGRect,
+    imageSize: CGSize? = nil
+) -> CGRect? {
+    guard finiteComponents(of: rect),
+          rect.width > 0,
+          rect.height > 0 else { return nil }
+
+    let tolerance = AppConfig.normalizedBoundsTolerance
+    guard rect.minX >= -tolerance,
+          rect.minY >= -tolerance,
+          rect.maxX <= 1 + tolerance,
+          rect.maxY <= 1 + tolerance else { return nil }
+
+    let normalizedAspect = max(rect.width / rect.height, rect.height / rect.width)
+    guard normalizedAspect.isFinite,
+          normalizedAspect <= AppConfig.maximumNormalizedBoxAspectRatio else { return nil }
+
+    let clipped = rect.clampedToUnitRect()
+    guard clipped.width > 0, clipped.height > 0 else { return nil }
+
+    if let imageSize {
+        guard imageSize.width.isFinite,
+              imageSize.height.isFinite,
+              imageSize.width > 0,
+              imageSize.height > 0 else { return nil }
+        let pixelWidth = clipped.width * imageSize.width
+        let pixelHeight = clipped.height * imageSize.height
+        guard pixelWidth >= AppConfig.minimumDetectionPixelSide,
+              pixelHeight >= AppConfig.minimumDetectionPixelSide else { return nil }
+        let pixelAspect = max(pixelWidth / pixelHeight, pixelHeight / pixelWidth)
+        guard pixelAspect.isFinite,
+              pixelAspect <= AppConfig.maximumPixelBoxAspectRatio else { return nil }
+    }
+
+    return clipped
+}
+
 extension CIImage {
     /// Crop using top-left normalized coordinates, which matches UI/object-detection conventions.
     /// Core Image itself uses a bottom-left pixel coordinate system, hence the Y conversion.

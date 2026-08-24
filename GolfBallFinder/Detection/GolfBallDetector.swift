@@ -62,6 +62,7 @@ final class GolfBallDetector: @unchecked Sendable {
     func predict(
         image: CIImage,
         cropRegion: CGRect,
+        fullFrameImageSize: CGSize,
         source: ScanSource,
         timestamp: TimeInterval
     ) -> (observations: [DetectionObservation], inferenceMs: Double) {
@@ -70,8 +71,18 @@ final class GolfBallDetector: @unchecked Sendable {
         let result = model(image)
         let observations = result.boxes.compactMap { box -> DetectionObservation? in
             guard shouldAcceptClass(box.cls, allNames: result.names) else { return nil }
-            let fullRect = mapCropRectToFullFrame(box.xywhn, cropRegion: cropRegion)
-            guard fullRect.width > 0, fullRect.height > 0 else { return nil }
+            // UltralyticsYOLO v8.9.13 has already decoded raw Core ML center-based
+            // [cx, cy, w, h] model-pixel channels, removed letterbox padding, converted the
+            // origin to top-left, and normalized the result. Do not center-decode xywhn again.
+            guard let detectorLocalRect = validatedNormalizedTopLeftDetectionRect(
+                box.xywhn,
+                imageSize: result.orig_shape
+            ) else { return nil }
+            let mapped = mapCropRectToFullFrame(detectorLocalRect, cropRegion: cropRegion)
+            guard let fullRect = validatedNormalizedTopLeftDetectionRect(
+                mapped,
+                imageSize: fullFrameImageSize
+            ) else { return nil }
             return DetectionObservation(
                 normalizedRect: fullRect,
                 confidence: box.conf,

@@ -25,6 +25,7 @@ struct FieldDiagnosticsView: View {
                     metric("Thermal state", diagnostics.thermalState)
                     metric("Detection confidence", confidenceText)
                     metric("Scan mode", diagnostics.scanMode)
+                    metric("Detection source", diagnostics.detectionSource ?? "—")
                     metric("Scene start → first candidate", firstCandidateText)
                     metric("Candidate → confirmed", confirmationText)
                     metric("Scene start → confirmed", sceneConfirmationText)

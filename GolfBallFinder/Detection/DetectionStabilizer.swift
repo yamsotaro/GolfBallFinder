@@ -4,6 +4,10 @@ import Foundation
 struct StabilizerOutput: Equatable, Sendable {
     let state: FinderState
     let shouldTriggerFeedback: Bool
+    /// Camera-clock timestamp of the first hit in the spatial cluster represented by `state`.
+    let candidateTrackStartedAt: TimeInterval?
+    /// First-hit to confirming-hit time for this spatial cluster, emitted only on confirmation.
+    let confirmationLatencyMs: Double?
 }
 
 /// Lightweight temporal confirmation for a single expected target.
@@ -45,23 +49,51 @@ struct DetectionStabilizer: Sendable {
             lastConfirmed = best
             let trigger = !wasConfirmed
             wasConfirmed = true
-            return StabilizerOutput(state: .found(best), shouldTriggerFeedback: trigger)
+            let firstTimestamp = hits.map(\.timestamp).min()
+            let lastTimestamp = hits.map(\.timestamp).max()
+            let latency: Double?
+            if trigger, let firstTimestamp, let lastTimestamp {
+                latency = max(0, (lastTimestamp - firstTimestamp) * 1_000)
+            } else {
+                latency = nil
+            }
+            return StabilizerOutput(
+                state: .found(best),
+                shouldTriggerFeedback: trigger,
+                candidateTrackStartedAt: firstTimestamp,
+                confirmationLatencyMs: latency
+            )
         }
 
         // Keep the last *confirmed* location briefly through detector flicker. Do not let an
         // unrelated one-frame candidate move the green "found" indication during this grace period.
         if persistenceRemaining > 0, wasConfirmed, let lastConfirmed {
             persistenceRemaining -= 1
-            return StabilizerOutput(state: .found(lastConfirmed), shouldTriggerFeedback: false)
+            return StabilizerOutput(
+                state: .found(lastConfirmed),
+                shouldTriggerFeedback: false,
+                candidateTrackStartedAt: nil,
+                confirmationLatencyMs: nil
+            )
         }
 
         wasConfirmed = false
         lastConfirmed = nil
         if let accepted {
-            return StabilizerOutput(state: .candidate(accepted), shouldTriggerFeedback: false)
+            return StabilizerOutput(
+                state: .candidate(accepted),
+                shouldTriggerFeedback: false,
+                candidateTrackStartedAt: hits.map(\.timestamp).min() ?? accepted.timestamp,
+                confirmationLatencyMs: nil
+            )
         }
 
-        return StabilizerOutput(state: .scanning, shouldTriggerFeedback: false)
+        return StabilizerOutput(
+            state: .scanning,
+            shouldTriggerFeedback: false,
+            candidateTrackStartedAt: nil,
+            confirmationLatencyMs: nil
+        )
     }
 
     private mutating func append(_ observation: DetectionObservation?) {
@@ -72,7 +104,10 @@ struct DetectionStabilizer: Sendable {
     }
 
     private func chooseCandidate(from candidates: [DetectionObservation]) -> DetectionObservation? {
-        let filtered = candidates.filter { $0.confidence >= AppConfig.candidateMinConfidence }
+        let filtered = candidates.filter {
+            $0.confidence >= AppConfig.candidateMinConfidence &&
+                validatedNormalizedTopLeftDetectionRect($0.normalizedRect) != nil
+        }
         guard !filtered.isEmpty else { return nil }
 
         if let lastAccepted {

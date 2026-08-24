@@ -152,6 +152,9 @@ Initial defaults:
 - minimum average confidence across clustered hits: 0.20;
 - maximum normalized center movement between compatible hits: 0.20;
 - confirmed state persistence: 5 processed frames.
+- finite, positive, normalized top-left bbox components within a 0.001 bounds tolerance;
+- minimum bbox side: 2 detector pixels;
+- maximum bbox aspect ratio: 4:1 in normalized and detector-pixel space.
 
 These are starting values only. Tune them from recorded false positives and misses.
 

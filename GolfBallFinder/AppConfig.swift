@@ -20,6 +20,14 @@ enum AppConfig {
     static let maxCenterStep: CGFloat = 0.20
     static let foundPersistenceFrames = 5
 
+    /// Geometry defense-in-depth. SDK boxes are normalized top-left rectangles after its raw
+    /// center-xywh decoder. Reject malformed or implausibly elongated golf-ball boxes before
+    /// they can lock an ROI or enter temporal confirmation.
+    static let normalizedBoundsTolerance: CGFloat = 0.001
+    static let maximumNormalizedBoxAspectRatio: CGFloat = 4.0
+    static let maximumPixelBoxAspectRatio: CGFloat = 4.0
+    static let minimumDetectionPixelSide: CGFloat = 2.0
+
     /// Inference scheduling. One model invocation per processed frame keeps thermals bounded.
     static let processedFPS: Double = 20
     static let fairThermalFPS: Double = 15

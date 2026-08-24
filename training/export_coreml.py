@@ -13,6 +13,19 @@ from pathlib import Path
 
 from ultralytics import YOLO
 
+try:
+    from .coreml_spec import (
+        inspect_coreml_package,
+        raw_yolo_output_contract,
+        validate_raw_yolo_detection_contract,
+    )
+except ImportError:  # Direct `python training/export_coreml.py` execution.
+    from coreml_spec import (
+        inspect_coreml_package,
+        raw_yolo_output_contract,
+        validate_raw_yolo_detection_contract,
+    )
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
@@ -58,8 +71,15 @@ def main() -> None:
             output.unlink()
         shutil.copytree(exported, output)
 
+    coreml_spec = inspect_coreml_package(output)
+    validate_raw_yolo_detection_contract(
+        coreml_spec,
+        expected_input_size=args.imgsz,
+        expected_class_count=len(model.names),
+    )
+
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "model_resource": output.name,
         "checkpoint_filename": weights.name,
         "checkpoint_sha256": sha256(weights),
@@ -68,6 +88,8 @@ def main() -> None:
         "input_size": [args.imgsz, args.imgsz],
         "export_precision": "INT8" if args.int8 else "FP16",
         "coreml_nms_embedded": False,
+        "coreml_spec": coreml_spec,
+        "output_contract": raw_yolo_output_contract(len(model.names)),
         "ultralytics_version": version("ultralytics"),
         "coremltools_version": version("coremltools"),
         "source_revision": os.environ.get("CM_COMMIT") or os.environ.get("GITHUB_SHA"),

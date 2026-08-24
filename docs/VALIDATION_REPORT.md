@@ -61,3 +61,25 @@ The earlier Swift parser result applies to the generated starter revision, not a
 Because Swift/Xcode is unavailable on this Windows host, every later Swift edit still requires the relevant
 Codemagic unsigned workflow before that edit may be described as compiling. Physical-device and field claims remain
 unverified until `FIELD_TEST_PLAN.md` is executed.
+
+## First-device geometry correction — 2026-08-24
+
+The first iPhone 16 Pro run measured 5.5 ms inference, 15 effective FPS, and nominal thermal state,
+but falsely confirmed a 0.004 x 0.980 right-edge box after reporting 305,768 ms candidate latency.
+This is recorded as pipeline execution evidence only, not accuracy success. The correction adds an
+actual `.mlpackage` specification gate, two-stage geometry sanity validation, full/tile/ROI and
+portrait overlay tests, track-scoped confirmation timing, complete re-search timing reset, and an
+explicit RGBA8/sRGB diagnostics preview. See `docs/DEVICE_VALIDATION_2026-08-24.md`.
+
+Windows regression after the correction:
+
+- `scripts/bootstrap_windows.ps1` — PASS (cached dependencies; the pip index was network-blocked but every pinned package was already satisfied, seed SHA verification and tests completed);
+- Python unit tests — 39 PASS;
+- Python compileall — PASS;
+- actual seed checkpoint load — one `golf_ball` class and raw `(1, 5, 8400)` output confirmed;
+- Swift tree-sitter parse — 22 files, 0 failures;
+- Codemagic Bash syntax — 24 script blocks, 0 failures;
+- `bootstrap_mac.sh` Bash syntax and `git diff --check` — PASS.
+
+Windows cannot type-check iOS frameworks or compile the generated Core ML package. Run both unsigned
+Codemagic workflows before the next TestFlight/device build.

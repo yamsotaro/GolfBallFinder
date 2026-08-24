@@ -156,4 +156,22 @@ final class ScanSchedulerTests: XCTestCase {
         }
         XCTAssertEqual(scheduler.nextRegion(), .full)
     }
+
+    func testResetClearsROIAndRestartsFullFrameSequence() {
+        var scheduler = ScanScheduler()
+        scheduler.lock(on: DetectionObservation(
+            normalizedRect: CGRect(x: 0.4, y: 0.4, width: 0.04, height: 0.04),
+            confidence: 0.5,
+            className: "golf_ball",
+            source: .tile,
+            timestamp: 0
+        ))
+        XCTAssertTrue(scheduler.isROILocked)
+
+        scheduler.reset()
+
+        XCTAssertFalse(scheduler.isROILocked)
+        XCTAssertEqual(scheduler.nextRegion(), .full)
+        XCTAssertEqual(scheduler.nextRegion(), .tile(AppConfig.searchTiles[0]))
+    }
 }

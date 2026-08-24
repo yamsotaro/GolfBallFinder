@@ -3,6 +3,30 @@ import XCTest
 @testable import GolfBallFinder
 
 final class DetectionStabilizerTests: XCTestCase {
+    func testReportedExtremeVerticalSliverCanNeverConfirm() {
+        var stabilizer = DetectionStabilizer()
+        let invalid = DetectionObservation(
+            normalizedRect: CGRect(x: 0.996, y: 0.017, width: 0.004, height: 0.980),
+            confidence: 0.99,
+            className: "golf_ball",
+            source: .roi,
+            timestamp: 0
+        )
+
+        for index in 0..<(AppConfig.requiredHits + AppConfig.stabilizerWindow) {
+            let repeated = DetectionObservation(
+                normalizedRect: invalid.normalizedRect,
+                confidence: invalid.confidence,
+                className: invalid.className,
+                source: invalid.source,
+                timestamp: Double(index)
+            )
+            let output = stabilizer.update(candidates: [repeated])
+            XCTAssertEqual(output.state, .scanning)
+            XCTAssertFalse(output.shouldTriggerFeedback)
+        }
+    }
+
     func testConfirmsRepeatedSpatialCandidate() {
         var stabilizer = DetectionStabilizer()
         var last: StabilizerOutput?
@@ -24,6 +48,54 @@ final class DetectionStabilizerTests: XCTestCase {
         } else {
             XCTFail("expected confirmed detection")
         }
+    }
+
+    func testConfidencePoint370FollowsConfiguredCandidateAndConfirmationThresholds() {
+        XCTAssertLessThanOrEqual(AppConfig.candidateMinConfidence, 0.370)
+        XCTAssertLessThanOrEqual(AppConfig.confirmedAverageConfidence, 0.370)
+        var stabilizer = DetectionStabilizer()
+        var output: StabilizerOutput?
+        for index in 0..<AppConfig.requiredHits {
+            output = stabilizer.update(candidates: [DetectionObservation(
+                normalizedRect: CGRect(x: 0.45, y: 0.45, width: 0.04, height: 0.04),
+                confidence: 0.370,
+                className: "golf_ball",
+                source: .roi,
+                timestamp: Double(index) / 15
+            )])
+        }
+        guard let output, case .found = output.state else {
+            return XCTFail("0.370 is intentionally above both configured thresholds")
+        }
+    }
+
+    func testConfirmationLatencyUsesOnlyCurrentSpatialTrack() {
+        var stabilizer = DetectionStabilizer()
+        _ = stabilizer.update(candidates: [DetectionObservation(
+            normalizedRect: CGRect(x: 0.05, y: 0.05, width: 0.04, height: 0.04),
+            confidence: 0.50,
+            className: "golf_ball",
+            source: .fullFrame,
+            timestamp: 0
+        )])
+
+        var output: StabilizerOutput?
+        for timestamp in [305.600, 305.667, 305.733] {
+            output = stabilizer.update(candidates: [DetectionObservation(
+                normalizedRect: CGRect(x: 0.75, y: 0.75, width: 0.04, height: 0.04),
+                confidence: 0.50,
+                className: "golf_ball",
+                source: .roi,
+                timestamp: timestamp
+            )])
+        }
+
+        guard let output, case .found = output.state else {
+            return XCTFail("new spatial track should confirm")
+        }
+        XCTAssertEqual(output.candidateTrackStartedAt ?? -1, 305.600, accuracy: 0.0001)
+        XCTAssertEqual(output.confirmationLatencyMs ?? -1, 133, accuracy: 0.01)
+        XCTAssertLessThan(output.confirmationLatencyMs ?? .infinity, 1_000)
     }
 
     func testOneFrameFalsePositiveDoesNotConfirm() {

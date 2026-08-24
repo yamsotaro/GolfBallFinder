@@ -107,9 +107,18 @@ workflows:
           assert (package / "Manifest.json").is_file(), "Core ML package Manifest.json is missing"
           assert manifest["checkpoint_sha256"] == EXPECTED_SHA256, manifest
           assert manifest["model_resource"] == "GolfBall.mlpackage", manifest
+          assert manifest["schema_version"] == 2, manifest
+          assert len(manifest["coreml_spec"]["outputs"]) == 1, manifest
+          assert manifest["coreml_spec"]["outputs"][0]["shape"] == [1, 5, 8400], manifest
+          assert manifest["output_contract"]["coreml_coordinate_channels"] == ["center_x", "center_y", "width", "height"], manifest
+          assert manifest["output_contract"]["sdk_origin"] == "top_left", manifest
           print(f"Verified generated manifest: {manifest_path.resolve()}")
           print(json.dumps(manifest, indent=2))
           '
+          python scripts/inspect_coreml_model.py \
+            --model GolfBallFinder/Resources/GolfBall.mlpackage \
+            --expected-input-size 640 \
+            --expected-class-count 1
 
       - name: Generate project, verify model registration, and resolve packages
         script: |
@@ -288,6 +297,31 @@ workflows:
               exit 3
             }
           fi
+
+      - name: Inspect and validate actual Core ML output contract
+        script: |
+          set -euo pipefail
+          if [ -d .venv-ci ]; then
+            . .venv-ci/bin/activate
+          else
+            /opt/homebrew/bin/python3.11 -m venv .venv-ci
+            . .venv-ci/bin/activate
+            python -m pip install --upgrade pip
+            python -m pip install -r training/requirements.txt
+          fi
+          python scripts/inspect_coreml_model.py \
+            --model GolfBallFinder/Resources/GolfBall.mlpackage \
+            --expected-input-size 640 \
+            --expected-class-count 1
+          python -c '
+          import json
+          from pathlib import Path
+          manifest = json.loads(Path("GolfBallFinder/Resources/ModelManifest.json").read_text(encoding="utf-8"))
+          assert manifest["schema_version"] == 2, manifest
+          assert manifest["coreml_spec"]["outputs"][0]["shape"] == [1, 5, 8400], manifest
+          assert manifest["output_contract"]["sdk_coordinate_layout"] == ["top_left_x", "top_left_y", "width", "height"], manifest
+          print("Verified bundled manifest records the inspected raw-output contract")
+          '
 
       - name: Generate Xcode project
         script: |

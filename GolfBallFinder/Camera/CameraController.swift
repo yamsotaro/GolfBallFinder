@@ -195,10 +195,11 @@ final class CameraController: NSObject, ObservableObject {
             if suspendInference { self.inferenceSuspended = true }
             self.inferenceQueue.async { [weak self] in
                 guard let self else { return }
-                self.scheduler = ScanScheduler()
+                self.scheduler.reset()
                 self.stabilizer.reset()
-                if publishScanning {
-                    DispatchQueue.main.async {
+                DispatchQueue.main.async {
+                    self.diagnostics.resetSearchState()
+                    if publishScanning {
                         if self.detector.isLoaded { self.finderState = .scanning }
                     }
                 }
@@ -484,6 +485,7 @@ final class CameraController: NSObject, ObservableObject {
             let prediction = self.detector.predict(
                 image: modelImage,
                 cropRegion: regionRect,
+                fullFrameImageSize: imageSize,
                 source: region.source,
                 timestamp: timestamp
             )
@@ -531,7 +533,9 @@ final class CameraController: NSObject, ObservableObject {
                         colorAssistMode: selectedColorAssistMode,
                         colorProcessingLatencyMs: colorAnalysis?.processingLatencyMs,
                         tileSaliencyScores: diagnosticTileScores,
-                        selectedTileOrder: diagnosticTileOrder
+                        selectedTileOrder: diagnosticTileOrder,
+                        candidateTrackStartedAt: stabilized.candidateTrackStartedAt,
+                        confirmationLatencyMs: stabilized.confirmationLatencyMs
                     )
                     if stabilized.shouldTriggerFeedback {
                         FeedbackManager.shared.ballFound()
