@@ -60,7 +60,7 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       groups:
-        - golfballfinder_model
+        - golfballfinder_config
       xcode: latest
     scripts:
       - name: Install deterministic build tools
@@ -74,6 +74,8 @@ workflows:
       - name: Fetch SHA256-pinned release checkpoint
         script: |
           set -euo pipefail
+          : "${MODEL_CHECKPOINT_URL:?MODEL_CHECKPOINT_URL must be set in golfballfinder_config}"
+          : "${MODEL_CHECKPOINT_SHA256:?MODEL_CHECKPOINT_SHA256 must be set in golfballfinder_config}"
           export YOLO_CONFIG_DIR="$CM_BUILD_DIR/.cache/ultralytics"
           export HF_HOME="$CM_BUILD_DIR/.cache/huggingface"
           mkdir -p "$YOLO_CONFIG_DIR" "$HF_HOME"
@@ -227,7 +229,6 @@ workflows:
       # credentials remain exclusively in the Developer Portal integration.
       groups:
         - golfballfinder_config
-        - golfballfinder_model
       vars:
         BUNDLE_ID: com.yamsotaro.golfballfinder
       xcode: latest
@@ -288,6 +289,8 @@ workflows:
       - name: Fetch and export pinned release Core ML model
         script: |
           set -euo pipefail
+          : "${MODEL_CHECKPOINT_URL:?MODEL_CHECKPOINT_URL must be set in golfballfinder_config}"
+          : "${MODEL_CHECKPOINT_SHA256:?MODEL_CHECKPOINT_SHA256 must be set in golfballfinder_config}"
           export YOLO_CONFIG_DIR="$CM_BUILD_DIR/.cache/ultralytics"
           export HF_HOME="$CM_BUILD_DIR/.cache/huggingface"
           mkdir -p "$YOLO_CONFIG_DIR" "$HF_HOME"

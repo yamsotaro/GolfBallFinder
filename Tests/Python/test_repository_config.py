@@ -272,6 +272,8 @@ class RepositoryConfigurationTests(unittest.TestCase):
             "ios-model-compile-check"
         ]
         scripts = "\n".join(step["script"] for step in workflow["scripts"])
+        self.assertEqual(workflow["environment"]["groups"], ["golfballfinder_config"])
+        self.assertIn("MODEL_CHECKPOINT_URL", scripts)
         self.assertIn("fetch_release_model.py", scripts)
         self.assertIn("MODEL_CHECKPOINT_SHA256", scripts)
         self.assertIn("release_golf_ball.pt", scripts)
@@ -340,7 +342,29 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertFalse(
             workflow["publishing"]["app_store_connect"]["submit_to_app_store"]
         )
-        self.assertIn("golfballfinder_model", workflow["environment"]["groups"])
+        self.assertEqual(workflow["environment"]["groups"], ["golfballfinder_config"])
+
+    def test_workflow_variable_groups_are_known_unique_and_minimal(self) -> None:
+        workflows = yaml.safe_load((ROOT / "codemagic.yaml").read_text(encoding="utf-8"))["workflows"]
+        expected = {
+            "ios-compile-check": [],
+            "ios-model-compile-check": ["golfballfinder_config"],
+            "ios-testflight": ["golfballfinder_config"],
+        }
+        for name, groups in expected.items():
+            actual = workflows[name].get("environment", {}).get("groups", [])
+            self.assertEqual(actual, groups)
+            self.assertEqual(len(actual), len(set(actual)), f"duplicate group in {name}")
+
+        for name in ("ios-model-compile-check", "ios-testflight"):
+            scripts = "\n".join(step["script"] for step in workflows[name]["scripts"])
+            self.assertIn("MODEL_CHECKPOINT_URL", scripts)
+            self.assertIn("MODEL_CHECKPOINT_SHA256", scripts)
+
+        testflight_scripts = "\n".join(
+            step["script"] for step in workflows["ios-testflight"]["scripts"]
+        )
+        self.assertIn("APP_STORE_APPLE_ID", testflight_scripts)
 
     def test_app_icon_is_configured(self) -> None:
         project = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))

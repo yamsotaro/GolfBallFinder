@@ -83,6 +83,6 @@ did not meet the aspirational precision >= 0.90 and recall >= 0.80 gate, so iPho
 
 Core ML export remains on hosted macOS. Publish only the selected checkpoint as the public GitHub Release asset
 documented in `training/public_mvp_release_v3.json`, verify it while signed out, and place its public URL and SHA256 in
-Codemagic group `golfballfinder_model`. Then run `ios-model-compile-check`. The workflow refuses a hash mismatch and
+Codemagic group `golfballfinder_config`. Then run `ios-model-compile-check`. The workflow refuses a hash mismatch and
 validates the exact one-input/one-output raw contract before Xcode compilation. After that passes, run
 `ios-testflight` to export the signed IPA and submit it to TestFlight.

@@ -70,7 +70,7 @@ Do not commit the `.p8` key or any Apple credential to Git.
    The release Bundle ID is deliberately fixed in `project.yml` and `codemagic.yaml`; it is not supplied by a
    mutable secret variable. Issuer ID, Key ID, and `.p8` contents remain only in the Developer Portal integration.
 
-7. Create a second environment group named `golfballfinder_model` and add:
+7. Add these model variables to the same existing `golfballfinder_config` group:
 
    - `MODEL_CHECKPOINT_URL`: an HTTPS URL from which the trained release `best.pt` can be downloaded;
    - `MODEL_CHECKPOINT_SHA256`: the exact lowercase SHA256 printed by the training/release report.
@@ -85,7 +85,7 @@ Run workflow `ios-compile-check` first. It needs no signing, runs the pure Swift
 simulator, and proves that the project and package dependencies compile on a real Apple toolchain.
 
 Then run `ios-model-compile-check`, which is also unsigned. It creates a pinned Python 3.11 environment, downloads
-the SHA256-pinned release `.pt` from `golfballfinder_model`, exports `GolfBall.mlpackage`, runs simulator tests/build, and checks
+the SHA256-pinned release `.pt` from `golfballfinder_config`, exports `GolfBall.mlpackage`, runs simulator tests/build, and checks
 that Xcode compiled `GolfBall.mlmodelc` plus `ModelManifest.json` into `GolfBallFinder.app`. Run this while Apple
 Developer approval is pending; it isolates model/export/resource errors from later signing errors.
 
@@ -148,7 +148,7 @@ This creates `.venv`, installs Windows-compatible YOLO/data tooling, and downloa
 
 Train normally on Windows (NVIDIA CUDA is ideal if available). This repository intentionally ignores trained
 checkpoints. Put the selected `best.pt` in private release/object storage, then set its HTTPS URL and SHA256 in the
-Codemagic `golfballfinder_model` group. Do not commit the dataset or training outputs merely to transfer them to CI.
+Codemagic `golfballfinder_config` group. Do not commit the dataset or training outputs merely to transfer them to CI.
 
 ## After a successful TestFlight build
 

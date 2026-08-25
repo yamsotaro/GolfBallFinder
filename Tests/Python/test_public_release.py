@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import re
 import subprocess
 import sys
 import unittest
@@ -18,20 +17,6 @@ from scripts import audit_public_release  # noqa: E402
 
 
 class PublicReleaseTests(unittest.TestCase):
-    def test_history_rewrite_mapping_is_hash_only(self) -> None:
-        mapping = (
-            ROOT / "docs" / "GIT_HISTORY_REWRITE_MAP_2026-08-25.md"
-        ).read_text(encoding="utf-8")
-        pairs = re.findall(
-            r"^\| `([0-9a-f]{40})` \| `([0-9a-f]{40})` \|$",
-            mapping,
-            flags=re.MULTILINE,
-        )
-        self.assertEqual(len(pairs), 8)
-        self.assertEqual(len({old for old, _ in pairs}), 8)
-        self.assertEqual(len({new for _, new in pairs}), 8)
-        self.assertNotIn("@", mapping)
-
     def test_license_is_exact_official_agpl_v3_text(self) -> None:
         license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
         normalized = license_text.replace("\r\n", "\n")

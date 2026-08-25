@@ -8,9 +8,9 @@ below are publicly reachable without credentials.
 
 The authorized local history rewrite replaced the author and committer email metadata in all eight existing commits
 with the repository owner's GitHub-provided ID-based `noreply` address. The post-rewrite audit found zero personal
-emails and no credential/private-key material in worktree files or reachable Git blobs. The old-to-new hash-only map
-is `docs/GIT_HISTORY_REWRITE_MAP_2026-08-25.md`; email values are intentionally not recorded. The rewritten history
-has not been pushed and the repository has not been made Public.
+emails and no credential/private-key material in worktree files or reachable Git blobs. The actual old-to-new commit
+mapping and old commit hashes are intentionally not stored in the public repository. The rewritten history has been
+validated directly from current reachable commit metadata and blobs rather than from a repository mapping file.
 
 ## License and public locations
 

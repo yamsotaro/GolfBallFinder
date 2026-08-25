@@ -13,7 +13,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 Then push the repository to GitHub and use the included Codemagic workflows. `ios-compile-check` runs the Swift
 unit tests and an unsigned Xcode compile. `ios-model-compile-check` additionally downloads the SHA256-pinned release
-checkpoint configured in the Codemagic `golfballfinder_model` environment group,
+checkpoint configured in the existing Codemagic `golfballfinder_config` environment group,
 exports `GolfBall.mlpackage`, runs tests/build, and fails unless `GolfBall.mlmodelc` is present in the Simulator app.
 It also inspects the generated `project.pbxproj` to require the model in the application target's Sources phase and
 requires `ModelManifest.json` in the application target's Resources phase, then requires a `coremlcompiler`/Core ML

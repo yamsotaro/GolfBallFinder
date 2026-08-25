@@ -120,7 +120,7 @@ try {
     Write-Host "Selected confirmed threshold: $threshold"
     Write-Host "Dataset source manifest: $sourceManifest"
     Write-Host "Comparison report: $(Join-Path $metricsRoot 'seed-vs-new.json')"
-    Write-Host "Next: publish best.pt as the documented public GitHub Release asset, verify its SHA256 while signed out, set Codemagic golfballfinder_model variables, and run ios-model-compile-check."
+    Write-Host "Next: publish best.pt as the documented public GitHub Release asset, verify its SHA256 while signed out, set the model variables in Codemagic golfballfinder_config, and run ios-model-compile-check."
 }
 finally {
     Pop-Location

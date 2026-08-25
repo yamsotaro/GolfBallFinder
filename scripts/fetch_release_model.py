@@ -69,7 +69,7 @@ def main() -> None:
     if not args.url or not args.sha256:
         raise SystemExit(
             "Set MODEL_CHECKPOINT_URL and MODEL_CHECKPOINT_SHA256 in Codemagic's "
-            "golfballfinder_model group"
+            "golfballfinder_config group"
         )
     try:
         digest = install_checkpoint(args.url, args.sha256, Path(args.out))
