@@ -20,7 +20,13 @@ def load_report(path: Path) -> dict[str, Any]:
 
 
 def compare_reports(seed: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
-    identity_fields = ("dataset_yaml_sha256", "dataset_manifest_sha256", "split", "imgsz")
+    identity_fields = (
+        "dataset_yaml_sha256",
+        "dataset_manifest_sha256",
+        "split",
+        "imgsz",
+        "scan_layout",
+    )
     mismatched = [field for field in identity_fields if seed.get(field) != new.get(field)]
     if mismatched:
         raise OfflineComparisonError(f"Reports are not comparable; mismatched: {mismatched}")
@@ -51,12 +57,32 @@ def compare_reports(seed: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
     seed_high_fp = seed_summary["high_confidence_false_positive_count"]
     new_high_fp = new_summary["high_confidence_false_positive_count"]
     high_fp_reduction = seed_high_fp - new_high_fp
+    new_size_bins = (
+        new.get("stratified_metrics", {})
+        .get("bbox_size_pixels", {})
+        .get("bins", {})
+    )
+    new_visibility_bins = (
+        new.get("stratified_metrics", {})
+        .get("visibility", {})
+        .get("bins", {})
+    )
+    small_recall = new_size_bins.get("<12", {}).get("recall")
+    partial_values = [
+        new_visibility_bins.get(key, {})
+        for key in ("50-75", "30-50")
+        if new_visibility_bins.get(key, {}).get("ground_truth", 0)
+    ]
+    partial_tp = sum(item.get("true_positives", 0) for item in partial_values)
+    partial_fn = sum(item.get("false_negatives", 0) for item in partial_values)
+    partial_recall = partial_tp / (partial_tp + partial_fn) if partial_tp + partial_fn else None
     return {
         "schema_version": 1,
         "dataset_yaml_sha256": seed["dataset_yaml_sha256"],
         "dataset_manifest_sha256": seed["dataset_manifest_sha256"],
         "split": seed["split"],
         "imgsz": seed["imgsz"],
+        "scan_layout": seed.get("scan_layout", "full"),
         "operating_threshold": seed_threshold,
         "seed": seed_summary,
         "new": new_summary,
@@ -81,11 +107,22 @@ def compare_reports(seed: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]
         },
         "mvp_gate": {
             "target_precision": 0.90,
-            "target_recall": 0.80,
+            "target_recall": 0.85,
+            "target_small_recall": 0.80,
+            "target_partial_recall": 0.80,
             "precision_pass": new_operating["precision"] >= 0.90,
-            "recall_pass": new_operating["recall"] >= 0.80,
+            "recall_pass": new_operating["recall"] >= 0.85,
+            "small_recall": small_recall,
+            "small_recall_pass": small_recall is not None and small_recall >= 0.80,
+            "partial_recall": partial_recall,
+            "partial_recall_pass": partial_recall is not None and partial_recall >= 0.80,
             "numeric_gate_pass": (
-                new_operating["precision"] >= 0.90 and new_operating["recall"] >= 0.80
+                new_operating["precision"] >= 0.90
+                and new_operating["recall"] >= 0.85
+                and small_recall is not None
+                and small_recall >= 0.80
+                and partial_recall is not None
+                and partial_recall >= 0.80
             ),
             "warning": "Dataset bias and temporal confirmation are not measured by this numeric gate.",
         },

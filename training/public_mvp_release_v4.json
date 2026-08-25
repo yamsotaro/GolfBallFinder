@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "release_id": "public_mvp_v4",
+  "promotion_scope": "limited TestFlight Build 4 device comparison",
+  "dataset": {
+    "manifest": "training/build4_recall_manifest.json",
+    "dataset_yaml_sha256": "9d52111c3ef5270f885c823d16af98e6071fbc4c42b29577c2a2805d4ff4d51b",
+    "dataset_manifest_sha256": "ecbc89a2570bec1d65160ce402f7c69420f7105beaa98f0752d032cbd25cfc89",
+    "attribution_sha256": "68655281d1dc85258f6c4e5878d31738c7b1ffcda9ddbc21db88fef5b3a9823c",
+    "images": 1206,
+    "positive_images": 706,
+    "hard_negative_images": 500,
+    "synthetic_images": 324,
+    "splits": {
+      "train": 914,
+      "val": 122,
+      "test": 170
+    }
+  },
+  "training": {
+    "architecture": "YOLOv8n-compatible nano detector",
+    "base_checkpoint": {
+      "filename": "public_mvp_best.pt",
+      "release_manifest": "training/public_mvp_release_v3.json",
+      "sha256": "5b18acff26464a447d00703b08875603e7e8cfa6e53827dc7092d03f2b643199"
+    },
+    "epochs": 15,
+    "image_size": 640,
+    "batch": 8,
+    "seed": 404,
+    "device": "cpu",
+    "training_seconds": 4351.22,
+    "selected_epoch_index_zero_based": 14,
+    "toolchain": {
+      "ultralytics": "8.4.126",
+      "torch": "2.13.0",
+      "torchvision": "0.28.0",
+      "numpy": "2.3.5",
+      "opencv_python": "5.0.0.93",
+      "PyYAML": "6.0.3",
+      "Pillow": "12.3.0"
+    }
+  },
+  "checkpoint": {
+    "source_checkpoint": "runs/golfball/build4_recall_nano_v1/weights/selected_build4.pt",
+    "local_path": "training/models/public_mvp_v4.pt",
+    "filename": "public_mvp_v4.pt",
+    "byte_size": 24461415,
+    "sha256": "1cf77c75ec1cd4e8f66e4abddee13d038dd7604a17ce16b8709ada7e89746426",
+    "source_copy_byte_identical": true,
+    "license": "AGPL-3.0-only",
+    "release_asset_name": "public_mvp_v4.pt",
+    "publication": {
+      "published": false,
+      "planned_release_tag": "public-mvp-v4",
+      "planned_public_url": "https://github.com/yamsotaro/GolfBallFinder/releases/download/public-mvp-v4/public_mvp_v4.pt",
+      "codemagic_url_variable": "MODEL_CHECKPOINT_URL",
+      "codemagic_sha256_variable": "MODEL_CHECKPOINT_SHA256",
+      "source_repository": "https://github.com/yamsotaro/GolfBallFinder"
+    }
+  },
+  "model_contract": {
+    "task": "detect",
+    "class_names": {
+      "0": "golf_ball"
+    },
+    "input": {
+      "name": "image",
+      "color_space": "RGB",
+      "shape": [1, 3, 640, 640]
+    },
+    "raw_output": {
+      "shape": [1, 5, 8400],
+      "layout": "[batch, center_x/center_y/width/height + class_confidence, anchors]",
+      "independent_objectness": false
+    },
+    "sdk_bbox": {
+      "format": "xywh",
+      "origin": "top-left",
+      "normalized": true
+    }
+  },
+  "thresholds": {
+    "model_confidence": 0.23,
+    "candidate_min_confidence": 0.25,
+    "confirmed_average_confidence": 0.44,
+    "policy": "unchanged from the current production application"
+  },
+  "held_out_test": {
+    "dataset": "Build 4 170-image held-out test split",
+    "operating_threshold": 0.44,
+    "match_iou": 0.5,
+    "build3": {
+      "precision": 0.8888888888888888,
+      "recall": 0.3389830508474576,
+      "true_positives": 40,
+      "false_positives": 5,
+      "false_negatives": 78,
+      "map50": 0.5221236152373367,
+      "map50_95": 0.2747196314132654,
+      "high_confidence_false_positives": 1,
+      "size_recall": {
+        "lt_12_px": 0.0,
+        "12_to_20_px": 0.2222222222222222,
+        "20_to_40_px": 0.4230769230769231,
+        "gt_40_px": 0.7419354838709677
+      }
+    },
+    "build4": {
+      "precision": 0.8431372549019608,
+      "recall": 0.7288135593220338,
+      "true_positives": 86,
+      "false_positives": 16,
+      "false_negatives": 32,
+      "map50": 0.7769967268962026,
+      "map50_95": 0.46829616017879666,
+      "high_confidence_false_positives": 1,
+      "size_recall": {
+        "lt_12_px": 0.6176470588235294,
+        "12_to_20_px": 0.6296296296296297,
+        "20_to_40_px": 0.9230769230769231,
+        "gt_40_px": 0.7741935483870968
+      }
+    },
+    "external_beta_gate_pass": false
+  },
+  "known_limitations": [
+    "False positives increased from 5 to 16 versus Build 3 at the same held-out operating threshold.",
+    "The confidence >= 0.8 false-positive count remained 1 rather than improving.",
+    "Recall on the real-positive subgroup was 0.600; synthetic challenge gains do not establish field accuracy.",
+    "Rough, distance, occlusion, lighting, and lookalike performance still require additional iPhone field data.",
+    "This checkpoint is promoted only for a limited TestFlight device comparison and did not pass the external beta gate."
+  ],
+  "ios_integration": {
+    "scan_strategy": "existing adaptive full-frame, five-tile, and candidate ROI",
+    "color_assist_baseline": false,
+    "geometry_changed": false,
+    "decoder_changed": false,
+    "thresholds_changed": false,
+    "coreml_generated_locally": false,
+    "expected_coreml_path": "GolfBallFinder/Resources/GolfBall.mlpackage",
+    "export_workflow": "ios-model-compile-check"
+  }
+}

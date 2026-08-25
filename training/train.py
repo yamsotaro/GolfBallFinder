@@ -29,6 +29,22 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--resume", action="store_true")
     p.add_argument("--save-period", type=int, default=1)
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--patience", type=int, default=30)
+    p.add_argument("--close-mosaic", type=int, default=10)
+    p.add_argument("--mosaic", type=float, default=0.8)
+    p.add_argument("--scale", type=float, default=0.55)
+    p.add_argument("--translate", type=float, default=0.10)
+    p.add_argument("--degrees", type=float, default=5.0)
+    p.add_argument("--perspective", type=float, default=0.0002)
+    p.add_argument("--box", type=float, default=7.5)
+    p.add_argument("--cls", type=float, default=0.5)
+    p.add_argument("--dfl", type=float, default=1.5)
+    p.add_argument(
+        "--multi-scale",
+        type=float,
+        default=0.0,
+        help="Ultralytics multi-scale range; 0 disables it.",
+    )
     return p.parse_args()
 
 
@@ -59,18 +75,22 @@ def main() -> None:
         project=str(Path(args.project).resolve()),
         name=args.name,
         pretrained=True,
-        patience=30,
-        close_mosaic=10,
+        patience=args.patience,
+        close_mosaic=args.close_mosaic,
         # Small-object / outdoor robustness. Revisit from evidence, not intuition.
-        mosaic=0.8,
-        scale=0.55,
-        translate=0.10,
+        mosaic=args.mosaic,
+        scale=args.scale,
+        translate=args.translate,
         fliplr=0.5,
         hsv_h=0.015,
         hsv_s=0.45,
         hsv_v=0.35,
-        degrees=5.0,
-        perspective=0.0002,
+        degrees=args.degrees,
+        perspective=args.perspective,
+        box=args.box,
+        cls=args.cls,
+        dfl=args.dfl,
+        multi_scale=args.multi_scale,
         cache=False,
         plots=True,
         save=True,
@@ -106,6 +126,7 @@ def main() -> None:
         "batch": args.batch,
         "project": str(Path(args.project).resolve()),
         "save_period": args.save_period,
+        "patience": args.patience,
         "device": args.device,
         "started_at_utc": started_at_utc,
         "completed_at_utc": completed_at_utc,
@@ -114,16 +135,20 @@ def main() -> None:
         "best_checkpoint_sha256": file_sha256(best_checkpoint) if best_checkpoint.is_file() else None,
         "optimizer": "auto",
         "augmentation": {
-            "mosaic": 0.8,
-            "close_mosaic": 10,
-            "scale": 0.55,
-            "translate": 0.10,
+            "mosaic": args.mosaic,
+            "close_mosaic": args.close_mosaic,
+            "scale": args.scale,
+            "translate": args.translate,
             "fliplr": 0.5,
             "hsv_h": 0.015,
             "hsv_s": 0.45,
             "hsv_v": 0.35,
-            "degrees": 5.0,
-            "perspective": 0.0002,
+            "degrees": args.degrees,
+            "perspective": args.perspective,
+            "box": args.box,
+            "cls": args.cls,
+            "dfl": args.dfl,
+            "multi_scale": args.multi_scale,
         },
         "dataset_summary": summary.__dict__,
     }

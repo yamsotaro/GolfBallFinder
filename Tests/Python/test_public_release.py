@@ -70,6 +70,64 @@ class PublicReleaseTests(unittest.TestCase):
         self.assertTrue(publication["planned_public_url"].startswith("https://"))
         self.assertEqual(publication["codemagic_url_variable"], "MODEL_CHECKPOINT_URL")
 
+    def test_build4_release_manifest_is_pinned_and_documents_limited_beta_risk(self) -> None:
+        release = json.loads(
+            (ROOT / "training" / "public_mvp_release_v4.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        checkpoint = release["checkpoint"]
+        self.assertEqual(checkpoint["filename"], "public_mvp_v4.pt")
+        self.assertEqual(checkpoint["release_asset_name"], "public_mvp_v4.pt")
+        self.assertEqual(checkpoint["byte_size"], 24_461_415)
+        self.assertEqual(
+            checkpoint["sha256"],
+            "1cf77c75ec1cd4e8f66e4abddee13d038dd7604a17ce16b8709ada7e89746426",
+        )
+        self.assertEqual(checkpoint["license"], "AGPL-3.0-only")
+        self.assertTrue(checkpoint["source_copy_byte_identical"])
+
+        publication = checkpoint["publication"]
+        self.assertFalse(publication["published"])
+        self.assertEqual(publication["planned_release_tag"], "public-mvp-v4")
+        self.assertTrue(publication["planned_public_url"].startswith("https://"))
+        self.assertEqual(publication["codemagic_url_variable"], "MODEL_CHECKPOINT_URL")
+        self.assertEqual(
+            publication["codemagic_sha256_variable"], "MODEL_CHECKPOINT_SHA256"
+        )
+
+        contract = release["model_contract"]
+        self.assertEqual(contract["class_names"], {"0": "golf_ball"})
+        self.assertEqual(contract["input"], {
+            "name": "image",
+            "color_space": "RGB",
+            "shape": [1, 3, 640, 640],
+        })
+        self.assertEqual(contract["raw_output"]["shape"], [1, 5, 8400])
+        self.assertFalse(contract["raw_output"]["independent_objectness"])
+        self.assertEqual(
+            contract["sdk_bbox"],
+            {"format": "xywh", "origin": "top-left", "normalized": True},
+        )
+
+        held_out = release["held_out_test"]
+        self.assertFalse(held_out["external_beta_gate_pass"])
+        self.assertAlmostEqual(held_out["build3"]["precision"], 0.889, places=3)
+        self.assertAlmostEqual(held_out["build3"]["recall"], 0.339, places=3)
+        self.assertAlmostEqual(held_out["build4"]["precision"], 0.843, places=3)
+        self.assertAlmostEqual(held_out["build4"]["recall"], 0.729, places=3)
+        self.assertGreater(
+            held_out["build4"]["false_positives"],
+            held_out["build3"]["false_positives"],
+        )
+        self.assertTrue(release["known_limitations"])
+
+        release_notes = (
+            ROOT / "docs" / "PUBLIC_MVP_V4_RELEASE_NOTES.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(checkpoint["sha256"], release_notes)
+        self.assertIn("false positives increased", release_notes)
+
     def test_all_882_image_attributions_are_public_metadata(self) -> None:
         attribution_path = (
             ROOT / "training" / "datasets" / "public_mvp_v3" / "attribution.csv"
@@ -135,6 +193,8 @@ class PublicReleaseTests(unittest.TestCase):
             "training/public_dataset_sources.yaml",
             "training/public_mvp_v3.lock.json",
             "training/public_mvp_release_v3.json",
+            "training/public_mvp_release_v4.json",
+            "docs/PUBLIC_MVP_V4_RELEASE_NOTES.md",
             "docs/WINDOWS_CLOUD_BUILD.md",
             "LICENSE",
             "THIRD_PARTY_NOTICES.md",

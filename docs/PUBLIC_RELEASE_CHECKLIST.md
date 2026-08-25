@@ -17,9 +17,9 @@ validated directly from current reachable commit metadata and blobs rather than 
 - Project license: GNU Affero General Public License v3.0 only (`AGPL-3.0-only`), exact text in `LICENSE`.
 - Public source: `https://github.com/yamsotaro/GolfBallFinder`.
 - Planned model asset:
-  `https://github.com/yamsotaro/GolfBallFinder/releases/download/public-mvp-v3/public_mvp_best.pt`.
-- Model SHA256: `5b18acff26464a447d00703b08875603e7e8cfa6e53827dc7092d03f2b643199`.
-- Model provenance and evaluation: `training/public_mvp_release_v3.json`.
+  `https://github.com/yamsotaro/GolfBallFinder/releases/download/public-mvp-v4/public_mvp_v4.pt`.
+- Model SHA256: `1cf77c75ec1cd4e8f66e4abddee13d038dd7604a17ce16b8709ada7e89746426`.
+- Model provenance and evaluation: `training/public_mvp_release_v4.json`.
 - Third-party and dataset notices: `THIRD_PARTY_NOTICES.md`.
 
 ## Complete Corresponding Source inventory
@@ -38,7 +38,8 @@ The public revision corresponding to a TestFlight build must include:
   `training/datasets/public_mvp_v3/source_manifest.json`, and
   `training/datasets/public_mvp_v3/attribution.csv`: source policy, frozen counts/hashes, and all 882 per-image
   attributions;
-- `training/public_mvp_release_v3.json`: checkpoint SHA, settings, thresholds, measured metrics, and publication plan;
+- `training/public_mvp_release_v3.json` and `training/public_mvp_release_v4.json`: historical/current checkpoint SHA,
+  settings, thresholds, measured metrics, limitations, and publication plan;
 - `docs/`, `README.md`, `FIELD_TEST_PLAN.md`, and `NEXT_HUMAN_STEPS.md`: build, validation, and operating docs;
 - `LICENSE` and `THIRD_PARTY_NOTICES.md`.
 
@@ -72,8 +73,9 @@ first when applicable and clean history with an explicitly reviewed procedure.
 
 1. Review and commit the complete source revision without generated/private files.
 2. Push it, change the repository to Public, and verify the source URL while signed out.
-3. Create public release tag `public-mvp-v3`; upload `training/models/public_mvp_best.pt` as
-   `public_mvp_best.pt`; state AGPL-3.0-only, the source revision, provenance JSON path, and SHA256.
+3. Create public release tag `public-mvp-v4`; upload `training/models/public_mvp_v4.pt` as
+   `public_mvp_v4.pt`; use `docs/PUBLIC_MVP_V4_RELEASE_NOTES.md` and state AGPL-3.0-only, the source revision,
+   provenance JSON path, and SHA256.
 4. Download the asset while signed out and independently verify its SHA256.
 5. Set Codemagic `MODEL_CHECKPOINT_URL` to the public HTTPS asset URL and keep
    `MODEL_CHECKPOINT_SHA256` equal to the published SHA. These are identifiers, not secrets.

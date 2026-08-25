@@ -73,16 +73,18 @@ separate release gate. Offline image metrics do not measure iOS temporal confirm
 `training/train.py` saves each epoch by default. `training/select_checkpoint.py` evaluates every epoch on validation
 and selects by the precision/recall gate plus confidence >= 0.8 FP count, rather than accepting Ultralytics' mAP-only
 `best.pt`. `scripts/run_public_mvp_pipeline.ps1` performs this selection automatically and writes the release copy to
-`training/models/public_mvp_best.pt`.
+`training/models/public_mvp_best.pt`. The separately authorized Build 4 limited-beta copy is
+`training/models/public_mvp_v4.pt`; both checkpoint files remain ignored by Git.
 
-The recorded v3 selection uses model/candidate/confirmed thresholds `0.23 / 0.25 / 0.44`. These were selected on
-validation with false positives prioritized; they are not a claim of field accuracy. The untouched public test split
-did not meet the aspirational precision >= 0.90 and recall >= 0.80 gate, so iPhone field validation remains required.
+The recorded v3 selection uses model/candidate/confirmed thresholds `0.23 / 0.25 / 0.44`; the authorized Build 4
+limited-beta candidate retains those production values unchanged. They are not a claim of field accuracy. Build 4
+improves recall but does not meet its external-beta precision/recall gate, so iPhone field validation remains required.
 
 ## Core ML and CI handoff
 
-Core ML export remains on hosted macOS. Publish only the selected checkpoint as the public GitHub Release asset
-documented in `training/public_mvp_release_v3.json`, verify it while signed out, and place its public URL and SHA256 in
+Core ML export remains on hosted macOS. For TestFlight Build 4, publish only the selected checkpoint as the public
+GitHub Release asset documented in `training/public_mvp_release_v4.json`, verify it while signed out, and place its
+public URL and SHA256 in
 Codemagic group `golfballfinder_config`. Then run `ios-model-compile-check`. The workflow refuses a hash mismatch and
 validates the exact one-input/one-output raw contract before Xcode compilation. After that passes, run
 `ios-testflight` to export the signed IPA and submit it to TestFlight.

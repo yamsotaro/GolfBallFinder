@@ -228,7 +228,7 @@ Before any external TestFlight invitation is sent, that URL must be publicly rea
 source, tests, build/export scripts, pinned configuration, dataset provenance/attribution metadata, and model release
 metadata corresponding to the distributed build. The selected fine-tuned checkpoint will be published as a public
 GitHub Release asset under AGPL-3.0-only, with its SHA256 and provenance from
-[`training/public_mvp_release_v3.json`](training/public_mvp_release_v3.json). Large training images, generated runs,
+[`training/public_mvp_release_v4.json`](training/public_mvp_release_v4.json). Large training images, generated runs,
 caches, Apple credentials, and local signing artifacts are intentionally not part of Git history.
 
 See [`docs/PUBLIC_RELEASE_CHECKLIST.md`](docs/PUBLIC_RELEASE_CHECKLIST.md) before changing the repository to Public

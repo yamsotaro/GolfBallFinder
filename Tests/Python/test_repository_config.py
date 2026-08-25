@@ -140,17 +140,17 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertEqual(lock["exact_duplicates_removed"], 0)
         self.assertEqual(lock["perceptual_duplicates_removed"], 0)
 
-    def test_public_mvp_release_lock_matches_runtime_thresholds(self) -> None:
+    def test_public_mvp_v4_release_lock_matches_runtime_thresholds(self) -> None:
         release = json.loads(
-            (ROOT / "training" / "public_mvp_release_v3.json").read_text(encoding="utf-8")
+            (ROOT / "training" / "public_mvp_release_v4.json").read_text(encoding="utf-8")
         )
         self.assertEqual(
             release["checkpoint"]["sha256"],
-            "5b18acff26464a447d00703b08875603e7e8cfa6e53827dc7092d03f2b643199",
+            "1cf77c75ec1cd4e8f66e4abddee13d038dd7604a17ce16b8709ada7e89746426",
         )
-        self.assertFalse(release["held_out_test"]["numeric_gate_pass"])
+        self.assertFalse(release["held_out_test"]["external_beta_gate_pass"])
         self.assertEqual(
-            release["held_out_test"]["new"]["high_confidence_false_positives"], 1
+            release["held_out_test"]["build4"]["high_confidence_false_positives"], 1
         )
         config = (ROOT / "GolfBallFinder" / "AppConfig.swift").read_text(encoding="utf-8")
         thresholds = release["thresholds"]

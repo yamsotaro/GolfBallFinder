@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import random
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,10 +18,29 @@ from training.build_public_dataset import (
     output_split,
     scan_scene_negative_labels,
 )
+from training.build_recall_dataset import (
+    Background,
+    BallCrop,
+    grass_statistics,
+    render_synthetic,
+    visible_mask,
+)
 from training.color_assist import analyze_rgb, evaluate_manifest
 from training.compare_models import ComparisonError, compare_results, load_result
 from training.compare_offline_models import OfflineComparisonError, compare_reports
-from training.evaluate import Detection, aggregate_at_threshold, match_detections, recommend_thresholds
+from training.evaluate import (
+    Detection,
+    aggregate_at_threshold,
+    aggregate_by_size,
+    grid3_regions,
+    map_local_box_to_frame,
+    match_detections,
+    recommend_thresholds,
+    scan_invocations_per_cycle,
+    scan_regions,
+    suppress_overlaps,
+    visibility_bin,
+)
 from training.select_checkpoint import selection_rank
 from training.prepare_dataset import prepare_dataset
 from training.summarize_field_logs import FieldLogError, load_events, summarize_events
@@ -286,7 +306,61 @@ class PublicDatasetBuilderTests(unittest.TestCase):
         self.assertEqual(set(first), {"train", "val", "test"})
 
 
+class RecallDatasetBuilderTests(unittest.TestCase):
+    def test_grass_score_rejects_neutral_asphalt_like_surface(self) -> None:
+        asphalt = np.full((96, 96, 3), 105, dtype=np.uint8)
+        asphalt += np.random.default_rng(12).integers(0, 18, asphalt.shape, dtype=np.uint8)
+        grass = np.zeros((96, 96, 3), dtype=np.uint8)
+        grass[..., 0] = 65
+        grass[..., 1] = 125
+        grass[..., 2] = 45
+
+        asphalt_score, _, _ = grass_statistics(Image.fromarray(asphalt))
+        grass_score, _, _ = grass_statistics(Image.fromarray(grass))
+
+        self.assertLess(asphalt_score, 0.45)
+        self.assertGreater(grass_score, 0.90)
+
+    def test_occlusion_mask_tracks_requested_visible_fraction(self) -> None:
+        yy, xx = np.ogrid[:80, :80]
+        base = (xx - 39.5) ** 2 + (yy - 39.5) ** 2 <= 38**2
+        shown = visible_mask(base, 0.40, random.Random(7))
+        self.assertAlmostEqual(shown.sum() / base.sum(), 0.40, delta=0.02)
+
+    def test_synthetic_box_is_finite_bounded_and_measured(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            ball_path = root / "ball.jpg"
+            background_path = root / "grass.jpg"
+            ball = np.full((96, 96, 3), 225, dtype=np.uint8)
+            cv2.circle(ball, (48, 48), 38, (250, 250, 250), thickness=-1)
+            Image.fromarray(ball).save(ball_path)
+            grass = np.random.default_rng(10).integers(0, 35, size=(300, 300, 3), dtype=np.uint8)
+            grass[..., 1] += 95
+            Image.fromarray(grass).save(background_path)
+            crop = BallCrop("ball-parent", "train", ball_path, (0.5, 0.5, 1.0, 1.0), (0, 0, 96, 96))
+            background = Background("grass-parent", "train", background_path, True)
+
+            _, box, metadata = render_synthetic(
+                crop,
+                background,
+                "<12",
+                0.40,
+                random.Random(11),
+            )
+
+        self.assertTrue(all(np.isfinite(value) for value in box))
+        self.assertTrue(all(0 < value <= 1 for value in box))
+        self.assertAlmostEqual(metadata["ball_visibility_pct"], 40, delta=4)
+        self.assertEqual(metadata["requested_size_bin"], "<12")
+
+
 class OfflineDetectionEvaluationTests(unittest.TestCase):
+    def test_scan_cycle_counts_match_alternating_full_local_scheduler(self) -> None:
+        self.assertEqual(scan_invocations_per_cycle("full"), 1)
+        self.assertEqual(scan_invocations_per_cycle("full+five"), 10)
+        self.assertEqual(scan_invocations_per_cycle("full+grid3"), 18)
+
     def test_matching_counts_duplicate_detection_as_false_positive(self) -> None:
         ground_truth = [(0.4, 0.4, 0.6, 0.6)]
         predictions = [
@@ -309,15 +383,75 @@ class OfflineDetectionEvaluationTests(unittest.TestCase):
         self.assertEqual(point["false_positives"], 1)
         self.assertEqual(point["negative_images_with_false_positive"], 1)
 
+    def test_size_bins_report_small_object_recall_cliff(self) -> None:
+        image = Path("positive.jpg")
+        boxes = [
+            (0.10, 0.10, 0.11, 0.11),
+            (0.20, 0.20, 0.225, 0.225),
+            (0.30, 0.30, 0.35, 0.35),
+            (0.40, 0.40, 0.50, 0.50),
+        ]
+        predictions = {
+            image: [
+                Detection(0.9, boxes[1]),
+                Detection(0.9, boxes[2]),
+                Detection(0.9, boxes[3]),
+            ]
+        }
+
+        result = aggregate_by_size(
+            {image: boxes}, predictions, threshold=0.25, iou_threshold=0.5, imgsz=640
+        )
+
+        self.assertEqual(result["bins"]["<12"]["ground_truth"], 1)
+        self.assertEqual(result["bins"]["<12"]["recall"], 0.0)
+        self.assertEqual(result["bins"]["12-20"]["recall"], 1.0)
+        self.assertEqual(result["bins"]["20-40"]["recall"], 1.0)
+        self.assertEqual(result["bins"][">40"]["recall"], 1.0)
+
+    def test_visibility_buckets_match_build4_contract(self) -> None:
+        self.assertEqual(visibility_bin(80), "75-100")
+        self.assertEqual(visibility_bin(0.60), "50-75")
+        self.assertEqual(visibility_bin(40), "30-50")
+        self.assertEqual(visibility_bin(0.20), "<30")
+        with self.assertRaises(ValueError):
+            visibility_bin(float("nan"))
+
+    def test_three_by_three_tiles_cover_frame_and_overlap(self) -> None:
+        tiles = grid3_regions()
+        self.assertEqual(len(tiles), 9)
+        self.assertEqual(tiles[0], (0.0, 0.0, 0.42, 0.42))
+        for actual, expected in zip(tiles[-1], (0.58, 0.58, 1.0, 1.0), strict=True):
+            self.assertAlmostEqual(actual, expected, places=12)
+        self.assertLess(tiles[1][0], tiles[0][2])
+        self.assertEqual(len(scan_regions("full+grid3")), 10)
+
+    def test_tile_local_box_maps_to_full_frame(self) -> None:
+        mapped = map_local_box_to_frame(
+            (0.25, 0.25, 0.75, 0.75),
+            (0.58, 0.58, 1.0, 1.0),
+        )
+        for actual, expected in zip(mapped, (0.685, 0.685, 0.895, 0.895), strict=True):
+            self.assertAlmostEqual(actual, expected, places=12)
+
+    def test_cross_tile_nms_removes_duplicate_without_losing_best_confidence(self) -> None:
+        detections = [
+            Detection(0.90, (0.4, 0.4, 0.5, 0.5)),
+            Detection(0.80, (0.405, 0.405, 0.505, 0.505)),
+            Detection(0.70, (0.7, 0.7, 0.8, 0.8)),
+        ]
+        kept = suppress_overlaps(detections, 0.70)
+        self.assertEqual([item.confidence for item in kept], [0.90, 0.70])
+
     def test_threshold_recommendation_prefers_precision_recall_gate(self) -> None:
         points = [
             {"threshold": 0.1, "precision": 0.70, "recall": 0.95, "false_positives": 30},
-            {"threshold": 0.2, "precision": 0.91, "recall": 0.84, "false_positives": 5},
+            {"threshold": 0.2, "precision": 0.91, "recall": 0.86, "false_positives": 5},
             {"threshold": 0.3, "precision": 0.95, "recall": 0.79, "false_positives": 2},
         ]
         recommendation = recommend_thresholds(points)
         self.assertEqual(recommendation["confirmed_average_confidence"], 0.2)
-        self.assertEqual(recommendation["method"], "precision>=0.90_and_recall>=0.80_gate")
+        self.assertEqual(recommendation["method"], "precision>=0.90_and_recall>=0.85_gate")
 
     def test_compares_seed_and_new_fp_at_the_same_threshold(self) -> None:
         common = {
@@ -348,7 +482,7 @@ class OfflineDetectionEvaluationTests(unittest.TestCase):
 
         self.assertEqual(comparison["false_positive_reduction"]["count"], 18)
         self.assertEqual(comparison["false_positive_reduction"]["high_confidence_count"], 9)
-        self.assertTrue(comparison["mvp_gate"]["numeric_gate_pass"])
+        self.assertFalse(comparison["mvp_gate"]["numeric_gate_pass"])
 
     def test_refuses_offline_comparison_at_different_thresholds(self) -> None:
         seed = {
@@ -374,10 +508,11 @@ class OfflineDetectionEvaluationTests(unittest.TestCase):
                     }
                 },
                 "high_confidence_0_8": {"false_positives": high_fp},
+                "build4_gate": {"small_recall": 0.81, "partial_recall": 0.82},
             }
 
-        gate_more_fp = candidate(0.91, 0.82, 4, 2)
-        gate_less_fp = candidate(0.90, 0.80, 3, 1)
+        gate_more_fp = candidate(0.91, 0.86, 4, 2)
+        gate_less_fp = candidate(0.90, 0.85, 3, 1)
         no_gate = candidate(0.89, 0.85, 1, 0)
         self.assertIs(min((gate_more_fp, gate_less_fp, no_gate), key=selection_rank), gate_less_fp)
 

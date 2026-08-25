@@ -1,0 +1,84 @@
+{
+  "schema_version": 1,
+  "dataset_name": "GolfBallFinder Build 4 recall challenge and fine-tuning set",
+  "generated_dataset_path": "training/datasets/build4_recall_v1",
+  "class_names": {
+    "0": "golf_ball"
+  },
+  "sources": [
+    {
+      "source_url": "https://storage.googleapis.com/openimages/web/index.html",
+      "dataset_name": "Open Images Dataset V7",
+      "license": {
+        "annotations": "CC BY 4.0",
+        "images": "CC BY 2.0 as verified from each selected image metadata row"
+      },
+      "downloaded_image_count": 882,
+      "used_image_count": 882,
+      "positive_image_count": 382,
+      "negative_image_count": 500,
+      "synthetic_image_count": 0,
+      "attribution_required": true,
+      "attribution_path": "training/datasets/public_mvp_v3/attribution.csv"
+    },
+    {
+      "source_url": "derived only from same-split Open Images rows above",
+      "dataset_name": "GolfBallFinder deterministic Build 4 synthetic augmentation",
+      "license": "Derived pixels retain the per-image CC BY 2.0 source licenses",
+      "downloaded_image_count": 0,
+      "used_image_count": 324,
+      "positive_image_count": 324,
+      "negative_image_count": 0,
+      "synthetic_image_count": 324,
+      "attribution_required": true,
+      "attribution_path": "generated training/datasets/build4_recall_v1/attribution.csv"
+    }
+  ],
+  "totals": {
+    "images": 1206,
+    "positive_images": 706,
+    "hard_negative_images": 500,
+    "boxes": 806,
+    "synthetic_images": 324
+  },
+  "splits": {
+    "train": {
+      "real_positive": 289,
+      "synthetic_positive": 240,
+      "hard_negative": 385,
+      "images": 914
+    },
+    "val": {
+      "real_positive": 37,
+      "synthetic_positive": 36,
+      "hard_negative": 49,
+      "images": 122
+    },
+    "test": {
+      "real_positive": 56,
+      "synthetic_positive": 48,
+      "hard_negative": 66,
+      "images": 170
+    }
+  },
+  "synthetic_distribution": {
+    "bbox_scale_px_at_640": {
+      "<12": 126,
+      "12-20": 94,
+      "20-40": 65,
+      ">40": 39
+    },
+    "visible_fraction": {
+      "75-100": 79,
+      "50-75": 83,
+      "30-50": 81,
+      "<30": 81
+    }
+  },
+  "deduplication": {
+    "accepted_exact_or_perceptual_duplicates": 0,
+    "output_rows_removed": 0,
+    "rule": "reject exact or dHash distance <= 6 collisions against every real and previously accepted synthetic image"
+  },
+  "split_safety": "Every synthetic image uses ball and background parents from its own output split."
+}

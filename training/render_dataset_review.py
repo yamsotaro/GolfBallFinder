@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--split", choices=["train", "val", "test"], default="train")
     parser.add_argument("--content-type", choices=["positive", "hard_negative"], required=True)
+    parser.add_argument("--source-type", choices=["real", "synthetic"])
     parser.add_argument("--count", type=int, default=48)
     parser.add_argument("--columns", type=int, default=6)
     parser.add_argument("--seed", type=int, default=42)
@@ -46,10 +47,12 @@ def main() -> None:
     root = Path(str(config["path"]))
     root = root if root.is_absolute() else (args.data.parent / root).resolve()
     session_types: dict[str, str] = {}
+    session_source_types: dict[str, str] = {}
     with args.manifest.open(encoding="utf-8", newline="") as file:
         for row in csv.DictReader(file):
             if row["split"] == args.split:
                 session_types[row["session_id"]] = row["content_type"]
+                session_source_types[row["session_id"]] = row.get("source_type", "real") or "real"
     image_root = root / "images" / args.split
     allowed_sessions: set[str] | None = None
     if args.negative_class:
@@ -67,6 +70,10 @@ def main() -> None:
         for path in image_root.rglob("*")
         if path.suffix.lower() in IMAGE_SUFFIXES
         and session_types.get(path.relative_to(image_root).parts[0]) == args.content_type
+        and (
+            args.source_type is None
+            or session_source_types.get(path.relative_to(image_root).parts[0]) == args.source_type
+        )
         and (allowed_sessions is None or path.relative_to(image_root).parts[0] in allowed_sessions)
     ]
     images = sorted(images, key=lambda path: stable_rank(path.relative_to(root), args.seed))[: args.count]
