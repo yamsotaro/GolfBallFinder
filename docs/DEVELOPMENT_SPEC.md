@@ -140,23 +140,23 @@ The intention is to convert one weak small-object hit into several higher-pixel-
 
 ## 7. False-positive strategy
 
-The model threshold is intentionally low (`~0.12`) so partially hidden balls are not discarded too early. Precision is recovered outside the model through temporal/spatial confirmation.
+The public-MVP v3 checkpoint uses a validation-selected model threshold of `0.23`. Precision is also recovered through temporal/spatial confirmation; thresholding alone is not treated as the false-positive fix.
 
 ### Confirmation policy
 
-Initial defaults:
+Public-MVP v3 defaults:
 
 - stabilizer window: 5 processed inference results;
 - required spatially compatible hits: 3;
-- minimum per-candidate confidence: 0.14;
-- minimum average confidence across clustered hits: 0.20;
+- minimum per-candidate confidence: 0.25;
+- minimum average confidence across clustered hits: 0.44;
 - maximum normalized center movement between compatible hits: 0.20;
 - confirmed state persistence: 5 processed frames.
 - finite, positive, normalized top-left bbox components within a 0.001 bounds tolerance;
 - minimum bbox side: 2 detector pixels;
 - maximum bbox aspect ratio: 4:1 in normalized and detector-pixel space.
 
-These are starting values only. Tune them from recorded false positives and misses.
+These values came from the v3 validation split and must still be checked against recorded iPhone false positives and misses.
 
 ### Hard negatives required in training
 
@@ -364,19 +364,18 @@ LiDAR exists on iPhone 16 Pro but is not part of initial detection. A golf ball 
 
 ## 18. Licensing boundary
 
-Ultralytics iOS is AGPL-3.0. The current app is explicitly a personal prototype. Before App Store/commercial/closed-source distribution, make a licensing decision:
-
-- comply with AGPL obligations;
-- purchase an appropriate Ultralytics license;
-- or replace `GolfBallDetector` with another Core ML model/runtime path.
+Ultralytics iOS is AGPL-3.0. Policy A is selected: the application and selected fine-tuned model are published under
+AGPL-3.0-only, with Complete Corresponding Source and reproducibility/provenance metadata made available before
+external TestFlight distribution. Follow `docs/PUBLIC_RELEASE_CHECKLIST.md`; do not distribute a build while its
+source or checkpoint URL requires private credentials.
 
 SAHI is MIT, but only its inference concept is reimplemented; the Python package is not embedded in the iOS app. Dataset licenses must be recorded per source.
 
-## 19. Deployment to personal iPhone
+## 19. Deployment to iPhone and TestFlight
 
 Xcode can install to a personal device with an Apple Account. Apple's current Personal Team documentation says free provisioning profiles expire after seven days, requiring rebuild/reinstall. For routine use without that limitation, Apple Developer Program enrollment is more convenient. The app does not need to be publicly listed in the App Store to be developed/tested on the user's device.
 
-## 20. Definition of done for first useful personal build
+## 20. Definition of done for first useful beta build
 
 The first useful build is complete when:
 

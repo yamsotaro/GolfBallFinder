@@ -1,0 +1,68 @@
+schema_version: 1
+sources:
+  open_images_v7:
+    dataset_name: Open Images Dataset V7
+    source_url: https://storage.googleapis.com/openimages/web/index.html
+    download_documentation_url: https://storage.googleapis.com/openimages/web/download_v7.html
+    annotation_license: CC BY 4.0
+    annotation_license_url: https://creativecommons.org/licenses/by/4.0/
+    image_license: CC BY 2.0 as listed in Open Images per-image metadata
+    allowed_image_license_urls:
+      - https://creativecommons.org/licenses/by/2.0/
+      - http://creativecommons.org/licenses/by/2.0/
+    attribution_required: true
+    positive_class:
+      name: Golf ball
+      mid: /m/044r5d
+    hard_negative_classes:
+      Apple: /m/014j1m
+      Ball (Object): /m/018xm
+      Bottle: /m/04dr76w
+      Candle: /m/0c06p
+      Coin: /m/0242l
+      Common sunflower: /m/0ftb8
+      Computer mouse: /m/020lf
+      Container: /m/011q46kg
+      Cosmetics: /m/014trl
+      Cricket ball: /m/02ctlc
+      Doughnut: /m/0jy4k
+      Egg: /m/033cnk
+      Flower: /m/0c9ph5
+      Headphones: /m/01b7fy
+      Houseplant: /m/03fp41
+      Lamp: /m/0dtln
+      Light bulb: /m/0h8l4fh
+      Mushroom: /m/052sf
+      Orange (fruit): /m/0cyhj_
+      Paper towel: /m/02w3r3
+      Plant: /m/05s2s
+      Plastic bag: /m/05gqfk
+      Potato: /m/05vtc
+      Remote control: /m/0qjjc
+      Rose: /m/06m11
+      Soap dispenser: /m/0c3mkw
+      Tennis ball: /m/05ctyq
+      Tree: /m/07j7r
+    scene_negative_classes:
+      Grass: /m/08t9c_
+      Grassland: /m/01c7cq
+      Lawn: /m/01v327
+      Meadow: /m/025st_8
+      Pasture: /m/01gd91
+    annotation_urls:
+      train: https://storage.googleapis.com/openimages/v6/oidv6-train-annotations-bbox.csv
+      validation: https://storage.googleapis.com/openimages/v5/validation-annotations-bbox.csv
+      test: https://storage.googleapis.com/openimages/v5/test-annotations-bbox.csv
+    image_metadata_urls:
+      train: https://storage.googleapis.com/openimages/2018_04/train/train-images-boxable-with-rotation.csv
+      validation: https://storage.googleapis.com/openimages/2018_04/validation/validation-images-with-rotation.csv
+      test: https://storage.googleapis.com/openimages/2018_04/test/test-images-with-rotation.csv
+    human_image_label_urls:
+      validation: https://storage.googleapis.com/openimages/v7/oidv7-val-annotations-human-imagelabels.csv
+      test: https://storage.googleapis.com/openimages/v7/oidv7-test-annotations-human-imagelabels.csv
+    image_url_template: https://s3.amazonaws.com/open-images-dataset/{official_split}/{image_id}.jpg
+    notes: >-
+      Open Images states that annotations are CC BY 4.0 and images are listed as
+      CC BY 2.0, while warning users to verify image licenses. The builder therefore
+      requires each selected image's metadata License URL to match the allow-list and
+      writes author, landing page, and license into attribution.csv.

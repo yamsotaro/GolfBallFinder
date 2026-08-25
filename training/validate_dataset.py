@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from PIL import Image, ImageOps
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".heic", ".bmp", ".tif", ".tiff"}
@@ -47,6 +48,24 @@ def file_sha256(path: Path) -> str:
         for chunk in iter(lambda: file.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def image_difference_hash(path: Path, hash_size: int = 16) -> int:
+    """Fully decode an image and return a 256-bit perceptual difference hash."""
+    try:
+        with Image.open(path) as image:
+            image.load()
+            image = ImageOps.exif_transpose(image).convert("L")
+            image = image.resize((hash_size + 1, hash_size), Image.Resampling.LANCZOS)
+            pixels = image.tobytes()
+    except (OSError, ValueError, ModuleNotFoundError) as error:
+        raise DatasetValidationError(f"Corrupt or undecodable image: {path}: {error}") from error
+    value = 0
+    for row in range(hash_size):
+        offset = row * (hash_size + 1)
+        for column in range(hash_size):
+            value = (value << 1) | int(pixels[offset + column] > pixels[offset + column + 1])
+    return value
 
 
 def load_session_manifest(path: Path) -> dict[str, SessionEntry]:
@@ -134,7 +153,8 @@ def validate_dataset_config(config_path: Path, manifest_path: Path) -> DatasetSu
     summary = DatasetSummary()
     seen_sessions: set[str] = set()
     boxes_by_session: dict[str, int] = {session_id: 0 for session_id in sessions}
-    digest_to_location: dict[str, tuple[str, Path]] = {}
+    digest_to_location: dict[str, Path] = {}
+    perceptual_hashes: list[tuple[int, Path]] = []
 
     for split in ("train", "val", "test"):
         configured = config.get(split)
@@ -166,11 +186,24 @@ def validate_dataset_config(config_path: Path, manifest_path: Path) -> DatasetSu
 
             digest = file_sha256(image)
             previous = digest_to_location.get(digest)
-            if previous and previous[0] != split:
+            if previous:
+                raise DatasetValidationError(f"Exact image duplicate: {previous} and {image}")
+            digest_to_location[digest] = image
+
+            perceptual_hash = image_difference_hash(image)
+            near_duplicate = next(
+                (
+                    previous_path
+                    for previous_hash, previous_path in perceptual_hashes
+                    if (perceptual_hash ^ previous_hash).bit_count() <= 6
+                ),
+                None,
+            )
+            if near_duplicate:
                 raise DatasetValidationError(
-                    f"Exact image duplicate crosses splits: {previous[1]} and {image}"
+                    f"Perceptual near duplicate (dHash distance <= 6): {near_duplicate} and {image}"
                 )
-            digest_to_location.setdefault(digest, (split, image))
+            perceptual_hashes.append((perceptual_hash, image))
 
             label = _label_path(root, split, relative)
             box_count = validate_label_file(label)

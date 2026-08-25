@@ -12,7 +12,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 ```
 
 Then push the repository to GitHub and use the included Codemagic workflows. `ios-compile-check` runs the Swift
-unit tests and an unsigned Xcode compile. `ios-model-compile-check` additionally downloads the SHA256-pinned seed,
+unit tests and an unsigned Xcode compile. `ios-model-compile-check` additionally downloads the SHA256-pinned release
+checkpoint configured in the Codemagic `golfballfinder_model` environment group,
 exports `GolfBall.mlpackage`, runs tests/build, and fails unless `GolfBall.mlmodelc` is present in the Simulator app.
 It also inspects the generated `project.pbxproj` to require the model in the application target's Sources phase and
 requires `ModelManifest.json` in the application target's Resources phase, then requires a `coremlcompiler`/Core ML
@@ -74,6 +75,10 @@ Then open the project, choose your Signing Team, select the connected iPhone, an
 - `FIELD_TEST_PLAN.md` — directly executable iPhone field protocol and KPI definitions.
 - `NEXT_HUMAN_STEPS.md` — private Apple/Codemagic/TestFlight actions after enrollment approval.
 
+- `docs/PUBLIC_MVP_TRAINING.md` - licensed public-data build, deduplication, training, evaluation, and CI handoff.
+- `docs/PUBLIC_RELEASE_CHECKLIST.md` - AGPL source/model publication and pre-public security checklist.
+- `docs/TESTFLIGHT_BETA_DESCRIPTION.md` - source-availability text to publish with the external beta.
+
 ## Current MVP architecture
 
 ```text
@@ -126,6 +131,10 @@ the model workflow treats the manifest as a required top-level bundle resource. 
 comparisons remain reproducible.
 
 ## Train the actual model
+
+For the automated pre-field-data public MVP path, use `scripts/run_public_mvp_pipeline.ps1`; source/license details
+and the individual commands are documented in `docs/PUBLIC_MVP_TRAINING.md`. The field-data process below remains the
+required next iteration after external beta sharing.
 
 1. Record many short iPhone videos of golf balls in representative grass/rough and separate negative-only scenes.
 2. Extract spaced frames while keeping recording sessions separate:
@@ -204,6 +213,23 @@ or false-alert performance; those require the matched iPhone A/B protocol in `FI
 Use `docs/FIELD_TEST_LOG_TEMPLATE.csv` for the first repeatable device/field pass. Do not fill target values into
 the result columns until they have actually been measured on the iPhone 16 Pro.
 
-## Important license note
+## License and source availability
 
-The MVP depends on Ultralytics' AGPL-3.0 iOS SDK. That is acceptable for this personal prototype workflow, but closed-source/commercial distribution requires a separate licensing decision. See `THIRD_PARTY_NOTICES.md`. The design intentionally isolates the detector behind `GolfBallDetector.swift` so the runtime can later be replaced.
+GolfBallFinder is free software licensed under the **GNU Affero General Public License v3.0 only
+(AGPL-3.0-only)**. The complete license text is in [`LICENSE`](LICENSE). The project uses Ultralytics YOLO under
+its AGPL-3.0 license; dependency and dataset notices are recorded in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+The public source repository is:
+
+`https://github.com/yamsotaro/GolfBallFinder`
+
+Before any external TestFlight invitation is sent, that URL must be publicly reachable and must contain the exact
+source, tests, build/export scripts, pinned configuration, dataset provenance/attribution metadata, and model release
+metadata corresponding to the distributed build. The selected fine-tuned checkpoint will be published as a public
+GitHub Release asset under AGPL-3.0-only, with its SHA256 and provenance from
+[`training/public_mvp_release_v3.json`](training/public_mvp_release_v3.json). Large training images, generated runs,
+caches, Apple credentials, and local signing artifacts are intentionally not part of Git history.
+
+See [`docs/PUBLIC_RELEASE_CHECKLIST.md`](docs/PUBLIC_RELEASE_CHECKLIST.md) before changing the repository to Public
+or distributing a beta. No warranty is provided; see `LICENSE` sections 15 and 16.

@@ -55,10 +55,12 @@ workflows:
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
 
   ios-model-compile-check:
-    name: iOS seed model export and unsigned compile check
+    name: iOS release model export and unsigned compile check
     max_build_duration: 120
     instance_type: mac_mini_m2
     environment:
+      groups:
+        - golfballfinder_model
       xcode: latest
     scripts:
       - name: Install deterministic build tools
@@ -69,7 +71,7 @@ workflows:
           brew list python@3.11 >/dev/null 2>&1 || brew install python@3.11
           xcodegen --version
 
-      - name: Fetch SHA256-pinned seed checkpoint
+      - name: Fetch SHA256-pinned release checkpoint
         script: |
           set -euo pipefail
           export YOLO_CONFIG_DIR="$CM_BUILD_DIR/.cache/ultralytics"
@@ -79,14 +81,19 @@ workflows:
           . .venv-model-ci/bin/activate
           python -m pip install --upgrade pip
           python -m pip install -r training/requirements.txt
-          python scripts/fetch_seed_model.py
+          python scripts/fetch_release_model.py
+          python scripts/inspect_yolo_checkpoint.py \
+            --weights training/models/release_golf_ball.pt \
+            --imgsz 640
           python -c '
+          import os
           from pathlib import Path
-          from scripts.fetch_seed_model import EXPECTED_SHA256, sha256
-          model = Path("training/models/seed_golf_ball_yolov8n.pt")
+          from scripts.fetch_release_model import sha256
+          model = Path("training/models/release_golf_ball.pt")
+          expected = os.environ["MODEL_CHECKPOINT_SHA256"].lower()
           actual = sha256(model)
-          assert actual == EXPECTED_SHA256, (EXPECTED_SHA256, actual)
-          print(f"Verified seed SHA256: {actual}")
+          assert actual == expected, (expected, actual)
+          print(f"Verified release SHA256: {actual}")
           '
 
       - name: Export and validate GolfBall.mlpackage
@@ -94,18 +101,18 @@ workflows:
           set -euo pipefail
           . .venv-model-ci/bin/activate
           python training/export_coreml.py \
-            --weights training/models/seed_golf_ball_yolov8n.pt
+            --weights training/models/release_golf_ball.pt
           python -c '
           import json
+          import os
           from pathlib import Path
-          from scripts.fetch_seed_model import EXPECTED_SHA256
           package = Path("GolfBallFinder/Resources/GolfBall.mlpackage")
           manifest_path = Path("GolfBallFinder/Resources/ModelManifest.json")
           assert manifest_path.is_file(), f"Generated model manifest is missing: {manifest_path}"
           manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
           assert package.is_dir(), package
           assert (package / "Manifest.json").is_file(), "Core ML package Manifest.json is missing"
-          assert manifest["checkpoint_sha256"] == EXPECTED_SHA256, manifest
+          assert manifest["checkpoint_sha256"] == os.environ["MODEL_CHECKPOINT_SHA256"].lower(), manifest
           assert manifest["model_resource"] == "GolfBall.mlpackage", manifest
           assert manifest["schema_version"] == 2, manifest
           assert len(manifest["coreml_spec"]["outputs"]) == 1, manifest
@@ -196,6 +203,7 @@ workflows:
       - build/logs/model-xcodebuild.log
       - GolfBallFinder.xcodeproj/project.pbxproj
       - GolfBallFinder/Resources/ModelManifest.json
+      - GolfBallFinder/Resources/GolfBall.mlpackage
       - /tmp/xcodebuild_logs/*.log
 
   ios-testflight:
@@ -219,6 +227,7 @@ workflows:
       # credentials remain exclusively in the Developer Portal integration.
       groups:
         - golfballfinder_config
+        - golfballfinder_model
       vars:
         BUNDLE_ID: com.yamsotaro.golfballfinder
       xcode: latest
@@ -276,47 +285,37 @@ workflows:
             --bundle-id "$BUNDLE_ID" \
             --build-number "$APP_BUILD_NUMBER"
 
-      - name: Prepare seed Core ML model if no model is committed
+      - name: Fetch and export pinned release Core ML model
         script: |
           set -euo pipefail
           export YOLO_CONFIG_DIR="$CM_BUILD_DIR/.cache/ultralytics"
           export HF_HOME="$CM_BUILD_DIR/.cache/huggingface"
           mkdir -p "$YOLO_CONFIG_DIR" "$HF_HOME"
-          if [ ! -d GolfBallFinder/Resources/GolfBall.mlpackage ]; then
-            /opt/homebrew/bin/python3.11 -m venv .venv-ci
-            . .venv-ci/bin/activate
-            python -m pip install --upgrade pip
-            python -m pip install -r training/requirements.txt
-            python scripts/fetch_seed_model.py
-            python training/export_coreml.py \
-              --weights training/models/seed_golf_ball_yolov8n.pt
-          else
-            echo "Using committed GolfBall.mlpackage"
-            test -f GolfBallFinder/Resources/ModelManifest.json || {
-              echo "Committed GolfBall.mlpackage requires GolfBallFinder/Resources/ModelManifest.json"
-              exit 3
-            }
-          fi
+          /opt/homebrew/bin/python3.11 -m venv .venv-ci
+          . .venv-ci/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -r training/requirements.txt
+          python scripts/fetch_release_model.py
+          python scripts/inspect_yolo_checkpoint.py \
+            --weights training/models/release_golf_ball.pt \
+            --imgsz 640
+          python training/export_coreml.py \
+            --weights training/models/release_golf_ball.pt
 
       - name: Inspect and validate actual Core ML output contract
         script: |
           set -euo pipefail
-          if [ -d .venv-ci ]; then
-            . .venv-ci/bin/activate
-          else
-            /opt/homebrew/bin/python3.11 -m venv .venv-ci
-            . .venv-ci/bin/activate
-            python -m pip install --upgrade pip
-            python -m pip install -r training/requirements.txt
-          fi
+          . .venv-ci/bin/activate
           python scripts/inspect_coreml_model.py \
             --model GolfBallFinder/Resources/GolfBall.mlpackage \
             --expected-input-size 640 \
             --expected-class-count 1
           python -c '
           import json
+          import os
           from pathlib import Path
           manifest = json.loads(Path("GolfBallFinder/Resources/ModelManifest.json").read_text(encoding="utf-8"))
+          assert manifest["checkpoint_sha256"] == os.environ["MODEL_CHECKPOINT_SHA256"].lower(), manifest
           assert manifest["schema_version"] == 2, manifest
           assert manifest["coreml_spec"]["outputs"][0]["shape"] == [1, 5, 8400], manifest
           assert manifest["output_contract"]["sdk_coordinate_layout"] == ["top_left_x", "top_left_y", "width", "height"], manifest

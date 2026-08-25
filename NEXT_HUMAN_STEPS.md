@@ -72,13 +72,9 @@ The owner must record, rather than assume:
 Only after these measurements should thresholds, scan cadence, tiles, model precision, or a second-stage verifier be
 tuned. Preserve every field result with app build number, commit, and model checkpoint SHA.
 
-## 6. Licensing decision before broader distribution
+## 6. AGPL public-source gate before external TestFlight
 
-The current iOS runtime dependency is Ultralytics AGPL-3.0. Personal prototype/TestFlight work still needs to respect
-its terms. Before any closed-source, commercial, client, or public App Store distribution, explicitly choose one:
-
-- comply with the applicable AGPL obligations;
-- obtain an appropriate Ultralytics commercial license;
-- replace `GolfBallDetector` with a suitably licensed Core ML runtime/model path.
-
-Do not treat Apple approval or a successful TestFlight upload as resolution of the OSS licensing question.
+Policy A is selected: GolfBallFinder and its fine-tuned model are distributed under AGPL-3.0-only while using the
+Ultralytics AGPL path. Before inviting external testers, complete `docs/PUBLIC_RELEASE_CHECKLIST.md`, verify the source
+repository and model release while signed out, and place `docs/TESTFLIGHT_BETA_DESCRIPTION.md` in the beta metadata.
+Do not treat Apple approval or a successful upload as proof that the source/model publication gate has been met.

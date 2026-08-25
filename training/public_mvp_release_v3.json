@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "release_id": "public_mvp_v3",
+  "dataset": {
+    "lock_file": "training/public_mvp_v3.lock.json",
+    "dataset_yaml_sha256": "01b1026061edde0b9cb40f11a3f65e5b472fcde5a70377cf1cc185d55d63b5fa",
+    "dataset_manifest_sha256": "7ff37076374c717453549fb2cc68c2052741e406fe6e21ff67ed6232fbdd7032",
+    "images": 882,
+    "positive_images": 382,
+    "hard_negative_images": 500,
+    "synthetic_images": 0,
+    "splits": {
+      "train": 674,
+      "val": 86,
+      "test": 122
+    }
+  },
+  "training": {
+    "base_checkpoint": {
+      "repository": "notjulietxd/golf-ball-tracker",
+      "source_url": "https://huggingface.co/notjulietxd/golf-ball-tracker/blob/main/best.pt",
+      "filename": "best.pt",
+      "license": "Apache-2.0",
+      "sha256": "45e8f8bd8975dc7f437919a11c3f6ee1fe7c8ae40b0f49910d0677d1c0326791"
+    },
+    "base_checkpoint_sha256": "45e8f8bd8975dc7f437919a11c3f6ee1fe7c8ae40b0f49910d0677d1c0326791",
+    "epochs": 20,
+    "image_size": 640,
+    "batch": 8,
+    "seed": 42,
+    "device": "cpu",
+    "training_seconds": 4190.261178199988,
+    "selected_epoch_index_zero_based": 18,
+    "toolchain": {
+      "ultralytics": "8.4.126",
+      "torch": "2.13.0",
+      "torchvision": "0.28.0",
+      "numpy": "2.3.5",
+      "opencv_python": "5.0.0.93",
+      "PyYAML": "6.0.3",
+      "Pillow": "12.3.0"
+    }
+  },
+  "checkpoint": {
+    "local_path": "training/models/public_mvp_best.pt",
+    "sha256": "5b18acff26464a447d00703b08875603e7e8cfa6e53827dc7092d03f2b643199",
+    "license": "AGPL-3.0-only",
+    "release_asset_name": "public_mvp_best.pt",
+    "publication": {
+      "published": false,
+      "planned_release_tag": "public-mvp-v3",
+      "planned_public_url": "https://github.com/yamsotaro/GolfBallFinder/releases/download/public-mvp-v3/public_mvp_best.pt",
+      "codemagic_url_variable": "MODEL_CHECKPOINT_URL",
+      "source_repository": "https://github.com/yamsotaro/GolfBallFinder"
+    }
+  },
+  "thresholds": {
+    "model_confidence": 0.23,
+    "candidate_min_confidence": 0.25,
+    "confirmed_average_confidence": 0.44,
+    "selection_split": "val",
+    "selection_method": "fallback_max_f0.5_no_point_met_precision_recall_gate"
+  },
+  "held_out_test": {
+    "operating_threshold": 0.44,
+    "seed": {
+      "precision": 0.171875,
+      "recall": 0.4714285714285714,
+      "true_positives": 33,
+      "false_positives": 159,
+      "false_negatives": 37,
+      "map50": 0.2778131289432346,
+      "map50_95": 0.15835955598711118,
+      "high_confidence_false_positives": 37
+    },
+    "new": {
+      "precision": 0.8863636363636364,
+      "recall": 0.5571428571428572,
+      "true_positives": 39,
+      "false_positives": 5,
+      "false_negatives": 31,
+      "map50": 0.7040655031259115,
+      "map50_95": 0.4046412910390601,
+      "high_confidence_false_positives": 1
+    },
+    "numeric_gate_pass": false,
+    "high_confidence_false_positive_note": "The only confidence >= 0.8 metric FP is a golf-ball-shaped cupcake decoration omitted from an incompletely annotated positive image. It is an annotation-gap FP under the Open Images labels and remains a product-domain lookalike risk for this app."
+  },
+  "coreml": {
+    "generated_locally": false,
+    "expected_path": "GolfBallFinder/Resources/GolfBall.mlpackage",
+    "export_workflow": "ios-model-compile-check",
+    "expected_raw_output_shape": [1, 5, 8400]
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-24T15:50:41Z",
+  "sources": [
+    {
+      "source_id": "open_images_v7",
+      "source_url": "https://storage.googleapis.com/openimages/web/index.html",
+      "dataset_name": "Open Images Dataset V7",
+      "license": {
+        "annotations": "CC BY 4.0",
+        "images": "CC BY 2.0 as listed in Open Images per-image metadata"
+      },
+      "downloaded_image_count": 882,
+      "used_image_count": 882,
+      "positive_image_count": 382,
+      "negative_image_count": 500,
+      "synthetic_image_count": 0,
+      "attribution_required": true,
+      "attribution_file": "attribution.csv",
+      "notes": "Open Images states that annotations are CC BY 4.0 and images are listed as CC BY 2.0, while warning users to verify image licenses. The builder therefore requires each selected image's metadata License URL to match the allow-list and writes author, landing page, and license into attribution.csv."
+    }
+  ],
+  "split_counts": {
+    "train": {
+      "positive": 289,
+      "hard_negative": 385,
+      "images": 674
+    },
+    "val": {
+      "positive": 37,
+      "hard_negative": 49,
+      "images": 86
+    },
+    "test": {
+      "positive": 56,
+      "hard_negative": 66,
+      "images": 122
+    }
+  },
+  "selection": {
+    "positive_candidates": 382,
+    "hard_negative_candidates": 485771,
+    "scene_negative_candidates": 4485,
+    "requested_scene_negative_images": 150,
+    "selected_scene_negative_images": 150,
+    "selected_object_negative_images": 350,
+    "requested_positive_images": 800,
+    "requested_negative_images": 500,
+    "selected_before_license_filter": 882,
+    "license_rejected": 0,
+    "download_failed": 0,
+    "corrupt_or_too_small": 0,
+    "downloaded_image_count": 882,
+    "annotation_scan": {
+      "annotation_rows": {
+        "train": 14610229,
+        "validation": 303980,
+        "test": 937327
+      },
+      "rejected_positive_boxes": 1
+    },
+    "human_image_label_rows": {
+      "validation": 618184,
+      "test": 2003748
+    },
+    "download_failures": {},
+    "image_validation_failures": {}
+  },
+  "deduplication": {
+    "removed_count": 0,
+    "exact_removed": 0,
+    "perceptual_removed": 0,
+    "details_file": "deduplication_report.json"
+  },
+  "validated_dataset_summary": {
+    "sessions": 882,
+    "images": 882,
+    "positive_images": 382,
+    "negative_images": 500,
+    "boxes": 482,
+    "hard_negative_images": 500
+  }
+}

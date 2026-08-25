@@ -1,7 +1,10 @@
 # Windows development/training dependencies.
 # Core ML export is intentionally excluded: run export in the cloud macOS build.
 ultralytics==8.4.126
+torch==2.13.0
+torchvision==0.28.0
 numpy==2.3.5
 opencv-python==5.0.0.93
 PyYAML==6.0.3
+Pillow==12.3.0
 huggingface_hub==1.28.0

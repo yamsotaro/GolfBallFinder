@@ -9,12 +9,28 @@ from pathlib import Path
 import yaml
 import cv2
 import numpy as np
+from PIL import Image
 
+from training.build_public_dataset import (
+    SourceImage,
+    deduplicate,
+    output_split,
+    scan_scene_negative_labels,
+)
 from training.color_assist import analyze_rgb, evaluate_manifest
 from training.compare_models import ComparisonError, compare_results, load_result
+from training.compare_offline_models import OfflineComparisonError, compare_reports
+from training.evaluate import Detection, aggregate_at_threshold, match_detections, recommend_thresholds
+from training.select_checkpoint import selection_rank
 from training.prepare_dataset import prepare_dataset
 from training.summarize_field_logs import FieldLogError, load_events, summarize_events
 from training.validate_dataset import DatasetValidationError, validate_dataset_config
+
+
+def write_test_image(path: Path, seed: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    pixels = np.random.default_rng(seed).integers(0, 256, size=(64, 64, 3), dtype=np.uint8)
+    Image.fromarray(pixels, mode="RGB").save(path, quality=95)
 
 
 class ColorAssistReferenceTests(unittest.TestCase):
@@ -80,9 +96,8 @@ class DatasetFixture:
         ):
             image = self.dataset / "images" / split / session / "frame.jpg"
             label = self.dataset / "labels" / split / session / "frame.txt"
-            image.parent.mkdir(parents=True, exist_ok=True)
             label.parent.mkdir(parents=True, exist_ok=True)
-            image.write_bytes(f"unique-image-{index}".encode())
+            write_test_image(image, index)
             label.write_text("" if content_type == "hard_negative" else "0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
             rows.append(
                 {
@@ -129,7 +144,30 @@ class DatasetValidationTests(unittest.TestCase):
             train = fixture.dataset / "images" / "train" / "train_session" / "frame.jpg"
             test = fixture.dataset / "images" / "test" / "test_session" / "frame.jpg"
             test.write_bytes(train.read_bytes())
-            with self.assertRaisesRegex(DatasetValidationError, "duplicate crosses splits"):
+            with self.assertRaisesRegex(DatasetValidationError, "Exact image duplicate"):
+                validate_dataset_config(fixture.config, fixture.manifest)
+
+    def test_rejects_perceptual_near_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = DatasetFixture(Path(directory))
+            fixture.create()
+            train = fixture.dataset / "images" / "train" / "train_session" / "frame.jpg"
+            test = fixture.dataset / "images" / "test" / "test_session" / "frame.jpg"
+            with Image.open(train) as image:
+                pixels = np.array(image.convert("RGB"))
+            pixels[-1, -1] = (pixels[-1, -1] + 1) % 255
+            Image.fromarray(pixels, mode="RGB").save(test, quality=96)
+            self.assertNotEqual(train.read_bytes(), test.read_bytes())
+            with self.assertRaisesRegex(DatasetValidationError, "Perceptual near duplicate"):
+                validate_dataset_config(fixture.config, fixture.manifest)
+
+    def test_rejects_corrupt_image(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = DatasetFixture(Path(directory))
+            fixture.create()
+            image = fixture.dataset / "images" / "val" / "val_hard_negative" / "frame.jpg"
+            image.write_bytes(b"not-a-decodable-image")
+            with self.assertRaisesRegex(DatasetValidationError, "Corrupt or undecodable image"):
                 validate_dataset_config(fixture.config, fixture.manifest)
 
     def test_rejects_hard_negative_with_box(self) -> None:
@@ -165,7 +203,7 @@ class DatasetPreparationTests(unittest.TestCase):
             ):
                 source = root / session
                 source.mkdir()
-                (source / "frame.jpg").write_bytes(f"source-{index}".encode())
+                write_test_image(source / "frame.jpg", 10 + index)
                 if content_type != "hard_negative":
                     (source / "frame.txt").write_text("0 0.5 0.5 0.1 0.1\n", encoding="utf-8")
                 rows.append(
@@ -189,6 +227,159 @@ class DatasetPreparationTests(unittest.TestCase):
                 (output / "labels" / "val" / "source_val" / "frame.txt").read_text(encoding="utf-8"),
                 "",
             )
+
+
+class PublicDatasetBuilderTests(unittest.TestCase):
+    def test_scene_negatives_require_positive_human_label_and_exclude_known_golf_balls(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            labels = Path(directory) / "validation.csv"
+            with labels.open("w", encoding="utf-8", newline="") as file:
+                writer = csv.DictWriter(
+                    file, fieldnames=("ImageID", "Source", "LabelName", "Confidence")
+                )
+                writer.writeheader()
+                writer.writerows(
+                    (
+                        {"ImageID": "grass", "Source": "verification", "LabelName": "/grass", "Confidence": "1"},
+                        {"ImageID": "absent", "Source": "verification", "LabelName": "/grass", "Confidence": "0"},
+                        {"ImageID": "golf", "Source": "verification", "LabelName": "/grass", "Confidence": "1"},
+                        {"ImageID": "golf", "Source": "verification", "LabelName": "/ball", "Confidence": "1"},
+                        {"ImageID": "bbox", "Source": "verification", "LabelName": "/grass", "Confidence": "1"},
+                    )
+                )
+
+            candidates, row_counts = scan_scene_negative_labels(
+                {"validation": labels},
+                positive_mid="/ball",
+                scene_mid_to_name={"/grass": "Grass"},
+                bbox_positive_keys={"validation/bbox"},
+            )
+
+        self.assertEqual(candidates, {"validation/grass": {"Grass"}})
+        self.assertEqual(row_counts, {"validation": 5})
+
+    def test_deduplicate_prefers_positive_and_removes_exact_and_near_duplicates(self) -> None:
+        positive = SourceImage("train/positive", "train", "positive", "positive")
+        exact_negative = SourceImage("train/exact", "train", "exact", "hard_negative")
+        near_negative = SourceImage("test/near", "test", "near", "hard_negative")
+        unique_negative = SourceImage("test/unique", "test", "unique", "hard_negative")
+        positive.sha256 = exact_negative.sha256 = "a" * 64
+        positive.difference_hash = exact_negative.difference_hash = 0b101010
+        near_negative.sha256 = "b" * 64
+        near_negative.difference_hash = 0b101011
+        unique_negative.sha256 = "c" * 64
+        unique_negative.difference_hash = (1 << 200) | 0b010101
+
+        kept, removed = deduplicate(
+            [exact_negative, near_negative, unique_negative, positive],
+            max_hamming_distance=1,
+        )
+
+        self.assertEqual({record.key for record in kept}, {positive.key, unique_negative.key})
+        self.assertEqual({item["reason"] for item in removed}, {"exact", "perceptual"})
+
+    def test_output_split_is_deterministic_and_session_key_based(self) -> None:
+        keys = [f"train/image-{index}" for index in range(100)]
+        first = [output_split(key, 42, 0.75, 0.125) for key in keys]
+        second = [output_split(key, 42, 0.75, 0.125) for key in keys]
+        self.assertEqual(first, second)
+        self.assertEqual(set(first), {"train", "val", "test"})
+
+
+class OfflineDetectionEvaluationTests(unittest.TestCase):
+    def test_matching_counts_duplicate_detection_as_false_positive(self) -> None:
+        ground_truth = [(0.4, 0.4, 0.6, 0.6)]
+        predictions = [
+            Detection(0.9, (0.4, 0.4, 0.6, 0.6)),
+            Detection(0.8, (0.41, 0.41, 0.59, 0.59)),
+        ]
+        result = match_detections(ground_truth, predictions, 0.2, 0.5)
+        self.assertEqual(result.true_positives, 1)
+        self.assertEqual(len(result.false_positives), 1)
+        self.assertEqual(result.false_negatives, 0)
+
+    def test_hard_negative_prediction_is_counted_as_false_positive(self) -> None:
+        image = Path("negative.jpg")
+        point = aggregate_at_threshold(
+            {image: []},
+            {image: [Detection(0.958, (0.1, 0.1, 0.2, 0.2))]},
+            threshold=0.8,
+            iou_threshold=0.5,
+        )
+        self.assertEqual(point["false_positives"], 1)
+        self.assertEqual(point["negative_images_with_false_positive"], 1)
+
+    def test_threshold_recommendation_prefers_precision_recall_gate(self) -> None:
+        points = [
+            {"threshold": 0.1, "precision": 0.70, "recall": 0.95, "false_positives": 30},
+            {"threshold": 0.2, "precision": 0.91, "recall": 0.84, "false_positives": 5},
+            {"threshold": 0.3, "precision": 0.95, "recall": 0.79, "false_positives": 2},
+        ]
+        recommendation = recommend_thresholds(points)
+        self.assertEqual(recommendation["confirmed_average_confidence"], 0.2)
+        self.assertEqual(recommendation["method"], "precision>=0.90_and_recall>=0.80_gate")
+
+    def test_compares_seed_and_new_fp_at_the_same_threshold(self) -> None:
+        common = {
+            "schema_version": 2,
+            "dataset_yaml_sha256": "a" * 64,
+            "dataset_manifest_sha256": "b" * 64,
+            "split": "test",
+            "imgsz": 640,
+            "offline_metrics": {"precision": 0.9, "recall": 0.8, "map50": 0.8, "map50_95": 0.5},
+            "error_summary": {"high_confidence_false_positives": []},
+        }
+        seed = {
+            **common,
+            "weights": "seed.pt",
+            "weights_sha256": "c" * 64,
+            "operating_point": {"threshold": 0.4, "precision": 0.5, "recall": 0.8, "false_positives": 20, "false_negatives": 5},
+            "high_confidence_0_8": {"false_positives": 10},
+        }
+        new = {
+            **common,
+            "weights": "new.pt",
+            "weights_sha256": "d" * 64,
+            "operating_point": {"threshold": 0.4, "precision": 0.9, "recall": 0.8, "false_positives": 2, "false_negatives": 5},
+            "high_confidence_0_8": {"false_positives": 1},
+        }
+
+        comparison = compare_reports(seed, new)
+
+        self.assertEqual(comparison["false_positive_reduction"]["count"], 18)
+        self.assertEqual(comparison["false_positive_reduction"]["high_confidence_count"], 9)
+        self.assertTrue(comparison["mvp_gate"]["numeric_gate_pass"])
+
+    def test_refuses_offline_comparison_at_different_thresholds(self) -> None:
+        seed = {
+            "schema_version": 2,
+            "dataset_yaml_sha256": "a",
+            "dataset_manifest_sha256": "b",
+            "split": "test",
+            "imgsz": 640,
+            "operating_point": {"threshold": 0.2},
+        }
+        new = {**seed, "operating_point": {"threshold": 0.3}}
+        with self.assertRaisesRegex(OfflineComparisonError, "thresholds differ"):
+            compare_reports(seed, new)
+
+    def test_checkpoint_selection_prefers_gate_then_high_confidence_fp(self) -> None:
+        def candidate(precision: float, recall: float, fp: int, high_fp: int) -> dict[str, object]:
+            return {
+                "threshold_recommendation": {
+                    "confirmed_point": {
+                        "precision": precision,
+                        "recall": recall,
+                        "false_positives": fp,
+                    }
+                },
+                "high_confidence_0_8": {"false_positives": high_fp},
+            }
+
+        gate_more_fp = candidate(0.91, 0.82, 4, 2)
+        gate_less_fp = candidate(0.90, 0.80, 3, 1)
+        no_gate = candidate(0.89, 0.85, 1, 0)
+        self.assertIs(min((gate_more_fp, gate_less_fp, no_gate), key=selection_rank), gate_less_fp)
 
 
 class ModelComparisonTests(unittest.TestCase):

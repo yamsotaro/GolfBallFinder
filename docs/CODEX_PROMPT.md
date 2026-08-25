@@ -2,7 +2,7 @@
 
 ## Mission
 
-You are the implementation agent for **GolfBallFinder**, a private-use iPhone application whose only essential job is to help a user find a golf ball in grass or deep rough using the rear camera.
+You are the implementation agent for **GolfBallFinder**, an AGPL-3.0-only open-source iPhone application whose only essential job is to help a user find a golf ball in grass or deep rough using the rear camera.
 
 The user may have difficulty visually locating a ball. The app must therefore prioritize **finding the ball reliably, quickly, and with a conspicuous indication**, not visual polish or feature breadth.
 
@@ -234,8 +234,9 @@ Why useful:
 Important license note:
 
 - the public SDK/repository is AGPL-3.0 at the pinned version used by this project;
-- acceptable for this private experimentation path only after the user understands the license implications;
-- if this becomes a proprietary/commercial App Store product, perform a license review and consider replacing this layer with an Apple-only/custom Core ML inference adapter or acquiring an appropriate commercial license.
+- Policy A is selected: GolfBallFinder and its selected fine-tuned checkpoint use the public AGPL-3.0-only path;
+- before external TestFlight distribution, publish the matching Complete Corresponding Source and checkpoint as
+  required by `docs/PUBLIC_RELEASE_CHECKLIST.md`.
 
 The architecture must therefore keep `GolfBallDetector` behind a small interface so the SDK can later be replaced without rewriting the camera/UI/search logic.
 
@@ -528,7 +529,9 @@ Do not commit large raw videos or proprietary course footage unless intentionall
 - Do not add telemetry or upload code.
 - Public dataset/model licenses must be recorded before incorporation.
 - Preserve third-party notices.
-- Keep the Ultralytics adapter replaceable due to AGPL/commercial considerations.
+- Follow the Ultralytics AGPL path and keep the Complete Corresponding Source and selected fine-tuned model publicly
+  available for externally distributed builds; follow `docs/PUBLIC_RELEASE_CHECKLIST.md`.
+- Keep the Ultralytics adapter replaceable without weakening the current AGPL obligations.
 - Do not accidentally commit signing certificates, provisioning profiles, Apple IDs, personal team IDs, or private paths.
 
 ---

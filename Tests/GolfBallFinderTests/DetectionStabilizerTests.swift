@@ -34,7 +34,7 @@ final class DetectionStabilizerTests: XCTestCase {
         for i in 0..<3 {
             let obs = DetectionObservation(
                 normalizedRect: CGRect(x: 0.45 + CGFloat(i) * 0.005, y: 0.48, width: 0.03, height: 0.03),
-                confidence: 0.35,
+                confidence: 0.50,
                 className: "golf_ball",
                 source: .roi,
                 timestamp: Double(i)
@@ -50,9 +50,9 @@ final class DetectionStabilizerTests: XCTestCase {
         }
     }
 
-    func testConfidencePoint370FollowsConfiguredCandidateAndConfirmationThresholds() {
+    func testConfidencePoint370RemainsCandidateBelowValidatedConfirmationThreshold() {
         XCTAssertLessThanOrEqual(AppConfig.candidateMinConfidence, 0.370)
-        XCTAssertLessThanOrEqual(AppConfig.confirmedAverageConfidence, 0.370)
+        XCTAssertGreaterThan(AppConfig.confirmedAverageConfidence, 0.370)
         var stabilizer = DetectionStabilizer()
         var output: StabilizerOutput?
         for index in 0..<AppConfig.requiredHits {
@@ -64,9 +64,10 @@ final class DetectionStabilizerTests: XCTestCase {
                 timestamp: Double(index) / 15
             )])
         }
-        guard let output, case .found = output.state else {
-            return XCTFail("0.370 is intentionally above both configured thresholds")
+        guard let output, case .candidate = output.state else {
+            return XCTFail("0.370 should remain a candidate below the validated confirmation threshold")
         }
+        XCTAssertFalse(output.shouldTriggerFeedback)
     }
 
     func testConfirmationLatencyUsesOnlyCurrentSpatialTrack() {
@@ -166,7 +167,7 @@ final class DetectionStabilizerTests: XCTestCase {
         for index in 0..<3 {
             let tracked = DetectionObservation(
                 normalizedRect: near.offsetBy(dx: CGFloat(index) * 0.003, dy: 0),
-                confidence: 0.32,
+                confidence: 0.50,
                 className: "golf_ball",
                 source: .tile,
                 timestamp: Double(index)
@@ -193,7 +194,7 @@ final class DetectionStabilizerTests: XCTestCase {
         var stabilizer = DetectionStabilizer()
         let observation = DetectionObservation(
             normalizedRect: CGRect(x: 0.50, y: 0.50, width: 0.03, height: 0.03),
-            confidence: 0.4,
+            confidence: 0.50,
             className: "golf_ball",
             source: .roi,
             timestamp: 0
@@ -229,7 +230,7 @@ extension DetectionStabilizerTests {
         for i in 0..<3 {
             let obs = DetectionObservation(
                 normalizedRect: confirmedRect.offsetBy(dx: CGFloat(i) * 0.002, dy: 0),
-                confidence: 0.40,
+                confidence: 0.50,
                 className: "golf_ball",
                 source: .roi,
                 timestamp: Double(i)

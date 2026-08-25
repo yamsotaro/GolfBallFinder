@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import plistlib
 import sys
 import tempfile
@@ -123,6 +124,49 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertIn("ios-model-compile-check", codemagic["workflows"])
         self.assertIn("ios-testflight", codemagic["workflows"])
 
+    def test_public_mvp_dataset_lock_records_license_counts_and_split(self) -> None:
+        lock = json.loads(
+            (ROOT / "training" / "public_mvp_v3.lock.json").read_text(encoding="utf-8")
+        )
+        source = lock["sources"][0]
+        self.assertEqual(source["dataset_name"], "Open Images Dataset V7")
+        self.assertEqual(source["annotation_license"], "CC BY 4.0")
+        self.assertIn("CC BY 2.0", source["image_license"])
+        self.assertTrue(source["attribution_required"])
+        self.assertEqual(source["positive_image_count"], 382)
+        self.assertEqual(source["negative_image_count"], 500)
+        self.assertEqual(source["synthetic_image_count"], 0)
+        self.assertEqual(sum(split["images"] for split in lock["split_counts"].values()), 882)
+        self.assertEqual(lock["exact_duplicates_removed"], 0)
+        self.assertEqual(lock["perceptual_duplicates_removed"], 0)
+
+    def test_public_mvp_release_lock_matches_runtime_thresholds(self) -> None:
+        release = json.loads(
+            (ROOT / "training" / "public_mvp_release_v3.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            release["checkpoint"]["sha256"],
+            "5b18acff26464a447d00703b08875603e7e8cfa6e53827dc7092d03f2b643199",
+        )
+        self.assertFalse(release["held_out_test"]["numeric_gate_pass"])
+        self.assertEqual(
+            release["held_out_test"]["new"]["high_confidence_false_positives"], 1
+        )
+        config = (ROOT / "GolfBallFinder" / "AppConfig.swift").read_text(encoding="utf-8")
+        thresholds = release["thresholds"]
+        self.assertIn(
+            f"modelConfidenceThreshold = {thresholds['model_confidence']}", config
+        )
+        self.assertIn(
+            f"candidateMinConfidence: Float = {thresholds['candidate_min_confidence']}",
+            config,
+        )
+        self.assertIn(
+            "confirmedAverageConfidence: Float = "
+            f"{thresholds['confirmed_average_confidence']}",
+            config,
+        )
+
     def test_release_bundle_id_is_canonical_across_signed_sources(self) -> None:
         project = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))
         target = project["targets"]["GolfBallFinder"]
@@ -223,13 +267,15 @@ class RepositoryConfigurationTests(unittest.TestCase):
         )
         self.assertIn("--spec project.compile-check.yml", compile_scripts)
 
-    def test_model_compile_workflow_verifies_seed_and_bundled_model(self) -> None:
+    def test_model_compile_workflow_verifies_release_checkpoint_and_bundled_model(self) -> None:
         workflow = yaml.safe_load((ROOT / "codemagic.yaml").read_text(encoding="utf-8"))["workflows"][
             "ios-model-compile-check"
         ]
         scripts = "\n".join(step["script"] for step in workflow["scripts"])
-        self.assertIn("fetch_seed_model.py", scripts)
-        self.assertIn("EXPECTED_SHA256", scripts)
+        self.assertIn("fetch_release_model.py", scripts)
+        self.assertIn("MODEL_CHECKPOINT_SHA256", scripts)
+        self.assertIn("release_golf_ball.pt", scripts)
+        self.assertIn("inspect_yolo_checkpoint.py", scripts)
         self.assertIn("export_coreml.py", scripts)
         self.assertIn("GolfBall.mlmodelc", scripts)
         self.assertIn("CODE_SIGNING_ALLOWED=NO", scripts)
@@ -263,7 +309,7 @@ class RepositoryConfigurationTests(unittest.TestCase):
         ]["ios-testflight"]
         step_names = [step["name"] for step in workflow["scripts"]]
         self.assertLess(
-            step_names.index("Prepare seed Core ML model if no model is committed"),
+            step_names.index("Fetch and export pinned release Core ML model"),
             step_names.index("Inspect and validate actual Core ML output contract"),
         )
         self.assertLess(
@@ -294,6 +340,7 @@ class RepositoryConfigurationTests(unittest.TestCase):
         self.assertFalse(
             workflow["publishing"]["app_store_connect"]["submit_to_app_store"]
         )
+        self.assertIn("golfballfinder_model", workflow["environment"]["groups"])
 
     def test_app_icon_is_configured(self) -> None:
         project = yaml.safe_load((ROOT / "project.yml").read_text(encoding="utf-8"))

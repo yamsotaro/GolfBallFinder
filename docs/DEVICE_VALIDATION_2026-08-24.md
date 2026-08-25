@@ -77,6 +77,8 @@ active scene timing window.
 
 Confidence 0.370 was allowed by configuration: model 0.12, candidate 0.14, confirmed average 0.20,
 with 3 hits in 5 frames. That path was internally consistent, but geometry had no plausibility gate.
+This records the seed-model test configuration; public-MVP v3 later superseded those confidence
+values with validation-selected 0.23 / 0.25 / 0.44 thresholds.
 
 ## Debug preview
 

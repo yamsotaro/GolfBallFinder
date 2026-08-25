@@ -65,7 +65,8 @@ Sources:
 - https://github.com/ultralytics/yolo-ios-app/releases/tag/v8.9.13
 - https://docs.ultralytics.com/integrations/coreml
 
-License: AGPL-3.0. Personal prototype is the immediate use. Revisit before distribution/commercialization.
+License: AGPL-3.0. Policy A is selected: GolfBallFinder and its selected fine-tuned checkpoint are published under
+AGPL-3.0-only before external TestFlight distribution. See `docs/PUBLIC_RELEASE_CHECKLIST.md`.
 
 ## SAHI / sliced inference
 

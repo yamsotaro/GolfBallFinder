@@ -70,13 +70,22 @@ Do not commit the `.p8` key or any Apple credential to Git.
    The release Bundle ID is deliberately fixed in `project.yml` and `codemagic.yaml`; it is not supplied by a
    mutable secret variable. Issuer ID, Key ID, and `.p8` contents remain only in the Developer Portal integration.
 
+7. Create a second environment group named `golfballfinder_model` and add:
+
+   - `MODEL_CHECKPOINT_URL`: an HTTPS URL from which the trained release `best.pt` can be downloaded;
+   - `MODEL_CHECKPOINT_SHA256`: the exact lowercase SHA256 printed by the training/release report.
+
+   Use a private object-store/release URL when the checkpoint is not intended to be public. If the URL is signed,
+   mark it secure in Codemagic. Neither value is an Apple credential. The workflow never prints the URL and rejects
+   non-HTTPS or hash-mismatched downloads.
+
 ## First cloud run
 
 Run workflow `ios-compile-check` first. It needs no signing, runs the pure Swift unit tests on an available iPhone
 simulator, and proves that the project and package dependencies compile on a real Apple toolchain.
 
 Then run `ios-model-compile-check`, which is also unsigned. It creates a pinned Python 3.11 environment, downloads
-the public seed `.pt`, verifies its fixed SHA256, exports `GolfBall.mlpackage`, runs simulator tests/build, and checks
+the SHA256-pinned release `.pt` from `golfballfinder_model`, exports `GolfBall.mlpackage`, runs simulator tests/build, and checks
 that Xcode compiled `GolfBall.mlmodelc` plus `ModelManifest.json` into `GolfBallFinder.app`. Run this while Apple
 Developer approval is pending; it isolates model/export/resource errors from later signing errors.
 
@@ -107,7 +116,7 @@ The signed workflow:
 
 1. requires `com.yamsotaro.golfballfinder` and asks App Store Connect for the highest existing App Store/TestFlight
    build number across versions, then uses that value plus one;
-2. creates the Core ML seed model in the Mac runner if `GolfBall.mlpackage` is not already in the repository;
+2. downloads the SHA256-pinned release checkpoint and creates its Core ML model in the Mac runner;
 3. records the checkpoint hash/export tool versions in `ModelManifest.json`;
 4. generates the Xcode project, rejects any development Bundle ID, resolves UltralyticsYOLO, and runs unit tests;
 5. fetches the matching `app_store` signing identities configured in Codemagic and applies the provisioning profile;
@@ -137,7 +146,9 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 This creates `.venv`, installs Windows-compatible YOLO/data tooling, and downloads the seed `.pt` checkpoint. It intentionally does **not** install `coremltools`; Core ML export occurs on hosted macOS.
 
-Train normally on Windows (NVIDIA CUDA is ideal if available), then commit/push the trained `best.pt` only if your repository/security policy allows large model artifacts. Prefer Git LFS for large model files. Another option is to keep model artifacts in release/object storage and have CI download a SHA256-pinned artifact.
+Train normally on Windows (NVIDIA CUDA is ideal if available). This repository intentionally ignores trained
+checkpoints. Put the selected `best.pt` in private release/object storage, then set its HTTPS URL and SHA256 in the
+Codemagic `golfballfinder_model` group. Do not commit the dataset or training outputs merely to transfer them to CI.
 
 ## After a successful TestFlight build
 

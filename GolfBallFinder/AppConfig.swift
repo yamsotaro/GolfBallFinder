@@ -6,17 +6,18 @@ enum AppConfig {
     /// Core ML model resource name. Xcode compiles GolfBall.mlpackage into the app bundle.
     static let modelName = "GolfBall"
 
-    /// Ask the detector for low-confidence candidates, then suppress false positives temporally.
-    static let modelConfidenceThreshold = 0.12
+    /// Validation-selected operating points for the public-MVP checkpoint (dataset v3).
+    /// Keep model threshold below the candidate gate so post-processing does not discard candidates.
+    static let modelConfidenceThreshold = 0.23
     static let modelIoUThreshold = 0.45
     static let maxDetections = 8
 
-    /// Temporal confirmation. A low detector threshold + repeated spatial agreement is preferred
-    /// to a high one-frame threshold because the target is frequently tiny or partially occluded.
+    /// Temporal confirmation still requires repeated spatial agreement; the average-confidence
+    /// threshold is the FP-prioritized validation point, not a substitute for 3-of-5 confirmation.
     static let stabilizerWindow = 5
     static let requiredHits = 3
-    static let candidateMinConfidence: Float = 0.14
-    static let confirmedAverageConfidence: Float = 0.20
+    static let candidateMinConfidence: Float = 0.25
+    static let confirmedAverageConfidence: Float = 0.44
     static let maxCenterStep: CGFloat = 0.20
     static let foundPersistenceFrames = 5
 
